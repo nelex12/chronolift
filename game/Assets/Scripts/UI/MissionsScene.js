@@ -17,7 +17,7 @@ class MissionsScene extends Phaser.Scene {
     const ms = MissionService.todayMissions();
     const done = ms.filter((m) => MissionService.isDone(m)).length;
     this.sub = this.add.text(240, 112, 'Выполнено ' + done + '/' + ms.length +
-      ' · сброс в ' + this.untilReset(), {
+      ' · новые через ' + this.untilReset(), {
       fontFamily: 'Arial', fontSize: '15px', color: '#9fb4c8'
     }).setOrigin(0.5);
 
@@ -75,12 +75,13 @@ class MissionsScene extends Phaser.Scene {
     });
   }
 
-  /* до сброса миссий — локальная полуночь (показ, а не гейт) */
+  /* сколько осталось до сброса миссий — до местной полуночи (показ, а не гейт).
+   * Раньше выводилось «сброс в 21:19» — читалось как время сброса, а это остаток */
   untilReset() {
     const now = new Date();
     const next = new Date(now); next.setHours(24, 0, 0, 0);
     const h = Math.floor((next - now) / 3600000);
     const min = Math.floor(((next - now) % 3600000) / 60000);
-    return (h < 10 ? '0' : '') + h + ':' + (min < 10 ? '0' : '') + min;
+    return (h ? h + ' ч ' : '') + min + ' мин';
   }
 }
