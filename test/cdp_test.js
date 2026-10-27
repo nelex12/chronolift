@@ -25,7 +25,7 @@ async function main() {
   const chrome = spawn(CHROME, [
     '--headless=new', '--disable-gpu', '--no-sandbox',
     `--remote-debugging-port=${PORT}`, `--user-data-dir=${tmp}`,
-    '--window-size=480,800', '--hide-scrollbars', 'about:blank'
+    '--window-size=480,800', '--force-device-scale-factor=' + (process.env.CHRONO_DPR || 1), '--hide-scrollbars', 'about:blank'
   ], { stdio: 'ignore' });
   process.on('exit', () => { try { chrome.kill(); } catch (e) {} });
   if (!await waitDebugger()) { console.error('no debugger'); process.exit(1); }
@@ -131,7 +131,12 @@ async function main() {
   console.log('ERRORS:', errors);
   console.log('SAVE:', saveState ? saveState.slice(0, 300) : 'null');
 
-  const ok = testlog !== 'null' && errors === '[]' && inSettings && backInMenu;
+  // холст в разрешении экрана: CHRONO_DPR=2 node test/cdp_test.js -> масштаб 2, холст 960×1600
+  const render = JSON.parse(await evaluate("JSON.stringify({scale: RENDER_SCALE, canvas: document.querySelector('canvas').width + 'x' + document.querySelector('canvas').height, zoom: window.__GAME.scene.getScene('Menu').cameras.main.zoom})"));
+  const renderOk = render.canvas === Math.round(480 * render.scale) + 'x' + Math.round(800 * render.scale) && render.zoom === render.scale;
+  console.log('RENDER:', JSON.stringify(render), renderOk ? 'PASS' : 'FAIL');
+
+  const ok = testlog !== 'null' && errors === '[]' && inSettings && backInMenu && renderOk;
   console.log(ok ? 'ALL PASS' : 'FAIL');
   ws.close();
   try { chrome.kill(); } catch (e) {}

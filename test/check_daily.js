@@ -6,7 +6,7 @@ const path = require('path');
 const vm = require('vm');
 
 const S = path.join(__dirname, '..', 'game', 'Assets', 'Scripts');
-const ctx = {};
+const ctx = { window: { devicePixelRatio: 1, innerWidth: 480, innerHeight: 800 } };  // Config.js считает масштаб отрисовки
 vm.createContext(ctx);
 vm.runInContext(['Core/Config.js', 'Services/DailyService.js', 'Services/MissionService.js']
   .map(f => fs.readFileSync(path.join(S, f), 'utf8')).join('\n') +

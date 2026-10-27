@@ -27,7 +27,7 @@ async function main() {
   const chrome = spawn(CHROME, [
     '--headless=new', '--disable-gpu', '--no-sandbox',
     `--remote-debugging-port=${PORT}`, `--user-data-dir=${tmp}`,
-    '--window-size=480,800', '--hide-scrollbars', 'about:blank'
+    '--window-size=480,800', '--force-device-scale-factor=' + (process.env.CHRONO_DPR || 1), '--hide-scrollbars', 'about:blank'
   ], { stdio: 'ignore' });
   process.on('exit', () => { try { chrome.kill(); } catch (e) {} });
 
@@ -80,8 +80,10 @@ async function main() {
   const testlog = await evaluate("(document.getElementById('testlog')||{textContent:'null'}).textContent");
   check('autotest finished', /"status":"TEST_DONE"/.test(testlog || ''), String(testlog || '').slice(0, 140));
 
-  // добиваем забег, чтобы сработал gameOver() (счётчик runs + saveNow)
-  await evaluate(`(function(){ var gs = window.__GAME.scene.getScene('Game'); if (gs && !gs.dead) gs.die('test_end'); return true; })()`);
+  // добиваем забег, чтобы сработал gameOver() (счётчик runs + saveNow). Если автопилот ни разу
+  // не умер, возрождение не потрачено и die() в автотесте возродил бы — тогда тест был нестабилен
+  await evaluate(`(function(){ var gs = window.__GAME.scene.getScene('Game');
+    if (gs && !gs.dead) { gs.reviveUsed = true; gs.invincible = 0; gs.die('test_end'); } return true; })()`);
   await sleep(2500);
 
   const m1 = JSON.parse(await evaluate(`(function(){

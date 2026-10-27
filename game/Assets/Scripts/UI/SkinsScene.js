@@ -6,6 +6,7 @@
 class SkinsScene extends Phaser.Scene {
   constructor() { super('Skins'); }
   create() {
+    fitCamera(this);
     this.sfx = new Sfx(this);
     this.cameras.main.setBackgroundColor('#0b0f17');
     addSceneTitle(this, 'ВЫБОР СКИНА', 70);

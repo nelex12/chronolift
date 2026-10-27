@@ -50,8 +50,8 @@ class BootScene extends Phaser.Scene {
   window.__GAME = new Phaser.Game({
     type: Phaser.WEBGL,
     parent: 'game',
-    width: CFG.W,
-    height: CFG.H,
+    width: Math.round(CFG.W * RENDER_SCALE),   // холст в разрешении экрана, мир — 480×800 (Config.js)
+    height: Math.round(CFG.H * RENDER_SCALE),
     backgroundColor: '#0b0f17',
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     render: { antialias: true, powerPreference: 'high-performance' },

@@ -3,6 +3,24 @@
  */
 'use strict';
 
+/* Камера сцены показывает мир 480×800 на холсте в RENDER_SCALE раз больше (см. Config.js).
+ * Начало координат камеры — левый верхний угол: тогда scroll и объекты со scrollFactor 0
+ * остаются в координатах мира, а нажатия Phaser пересчитывает в мир сам.
+ * Вызывать первой строкой create() каждой сцены. */
+function fitCamera(scene) {
+  scene.cameras.main.setOrigin(0, 0).setZoom(RENDER_SCALE);
+}
+
+/* Текст рисуется в своей текстуре; без resolution она в масштабе мира и размывается
+ * при увеличении камерой. Поэтому все this.add.text получают resolution = RENDER_SCALE */
+(function () {
+  const factory = Phaser.GameObjects.GameObjectFactory.prototype;
+  const addText = factory.text;
+  factory.text = function (x, y, text, style) {
+    return addText.call(this, x, y, text, Object.assign({ resolution: RENDER_SCALE }, style));
+  };
+})();
+
 function makeButton(scene, x, y, w, h, label, opts) {
   opts = opts || {};
   const c = opts.color || 0x1d2635;

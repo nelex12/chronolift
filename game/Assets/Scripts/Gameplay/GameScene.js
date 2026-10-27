@@ -9,6 +9,7 @@ class GameScene extends Phaser.Scene {
   constructor() { super('Game'); }
 
   create() {
+    fitCamera(this);
     this.sfx = new Sfx(this);
     this.hud = new Hud(this);
     this.skin = SKINS.find(s => s.id === (save.selectedSkin || 'orange')) || SKINS[0];

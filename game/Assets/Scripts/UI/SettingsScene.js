@@ -8,6 +8,7 @@
 class SettingsScene extends Phaser.Scene {
   constructor() { super('Settings'); }
   create() {
+    fitCamera(this);
     this.sfx = new Sfx(this);
     this.cameras.main.setBackgroundColor('#0b0f17');
     addSceneTitle(this, 'НАСТРОЙКИ', 70);

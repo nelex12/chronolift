@@ -8,6 +8,7 @@ class GameOverScene extends Phaser.Scene {
   constructor() { super('GameOver'); }
   init(data) { this.data = data; }
   create() {
+    fitCamera(this);
     this.sfx = new Sfx(this);
     this.cameras.main.setBackgroundColor('#0b0f17');
     this.add.tileSprite(240, 400, 480, 800, 'bg_wall_panel')

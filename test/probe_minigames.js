@@ -23,7 +23,7 @@ async function main() {
   const chrome = spawn(CHROME, [
     '--headless=new', '--disable-gpu', '--no-sandbox',
     `--remote-debugging-port=${PORT}`, `--user-data-dir=${tmp}`,
-    '--window-size=480,800', '--hide-scrollbars', 'about:blank'
+    '--window-size=480,800', '--force-device-scale-factor=' + (process.env.CHRONO_DPR || 1), '--hide-scrollbars', 'about:blank'
   ], { stdio: 'ignore' });
   process.on('exit', () => { try { chrome.kill(); } catch (e) {} });
   if (!await waitDebugger()) { console.error('no debugger'); process.exit(1); }

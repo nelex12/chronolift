@@ -7,6 +7,7 @@
 class MenuScene extends Phaser.Scene {
   constructor() { super('Menu'); }
   create() {
+    fitCamera(this);
     this.sfx = new Sfx(this);
     this.cameras.main.setBackgroundColor('#0b0f17');
     this.add.tileSprite(240, 400, 480, 800, 'bg_wall_panel')
@@ -187,7 +188,8 @@ class MenuScene extends Phaser.Scene {
   hudToast(msg, color) {
     const t = this.add.text(240, 238, msg, {
       fontFamily: 'Arial', fontSize: '20px', fontStyle: 'bold', color: color,
-      backgroundColor: '#101826dd', padding: { x: 12, y: 8 }
+      backgroundColor: '#101826dd', padding: { x: 12, y: 8 },
+      align: 'center', wordWrap: { width: 430 }   // «…Возвращайся завтра · миссии ждут награды» шире экрана
     }).setOrigin(0.5).setDepth(45);
     this.tweens.add({ targets: t, alpha: 0, y: 160, delay: 1500, duration: 600, onComplete: () => t.destroy() });
   }
