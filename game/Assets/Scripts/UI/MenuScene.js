@@ -43,6 +43,7 @@ class MenuScene extends Phaser.Scene {
     makeButton(this, 350, 646, 250, 52, 'СКИНЫ', { onClick: () => this.scene.start('Skins') });
     makeButton(this, 130, 712, 250, 52, 'МАГАЗИН', { onClick: () => this.scene.start('Shop') });
     makeButton(this, 350, 712, 250, 52, 'ДОСТИЖЕНИЯ', { onClick: () => this.scene.start('Achievements') });
+    makeButton(this, 240, 768, 220, 40, 'НАСТРОЙКИ', { fontSize: 17, onClick: () => this.scene.start('Settings') });
 
     // бейдж «есть невыбранные награды» на кнопке МИССИИ (soft CTA)
     const claimN = MissionService.claimableCount();
@@ -108,13 +109,14 @@ class MenuScene extends Phaser.Scene {
   showWelcome() {
     const c = this.add.container(240, 400).setDepth(60);
     const dim = this.add.rectangle(0, 0, 480, 800, 0x05080e, 0.9);
-    const logo = this.add.text(0, -180, 'ХРОНОЛИФТ', {
+    // логотип над историей: текст растёт вниз от y=-210 и заканчивается над кнопкой входа
+    const logo = this.add.text(0, -262, 'ХРОНОЛИФТ', {
       fontFamily: 'Arial', fontSize: '48px', fontStyle: 'bold', color: '#57f2ff'
     }).setOrigin(0.5).setShadow(0, 4, '#0a4a55', 8, true, true);
-    const story = this.add.text(0, -95,
+    const story = this.add.text(0, -210,
       'Ты — пилот испытательного лифта\nс хроно-приводом.\n\nШахта полна ловушек.\nЗАЖМИ экран, чтобы остановить время,\nи проскользни мимо них.\n\nНе дай энергии закончиться!', {
       fontFamily: 'Arial', fontSize: '19px', color: '#cfe3f5', align: 'center', lineSpacing: 8
-    }).setOrigin(0.5);
+    }).setOrigin(0.5, 0);
     const btnAuthR = this.add.rectangle(0, 60, 320, 58, 0x123a2e, 0.98)
       .setStrokeStyle(2, 0x2fd6a3).setInteractive({ useHandCursor: true });
     const btnAuthT = this.add.text(0, 60, 'ВОЙТИ ЧЕРЕЗ ЯНДЕКС', {
@@ -124,6 +126,9 @@ class MenuScene extends Phaser.Scene {
       fontFamily: 'Arial', fontSize: '16px', color: '#5a6a7d'
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     c.add([dim, logo, story, btnAuthR, btnAuthT, skipT]);
+    // уже вошёл (например, в Яндекс Играх под своим аккаунтом) — не предлагать вход ещё раз
+    const authorized = YandexClient.isAuthorized();
+    if (authorized) { btnAuthT.setText('ИГРАТЬ'); skipT.setVisible(false); }
 
     const close = () => {
       save.seenWelcome = true; saveNow();
@@ -131,6 +136,7 @@ class MenuScene extends Phaser.Scene {
       this.maybeShowDaily();
     };
     btnAuthR.on('pointerdown', async () => {
+      if (authorized) { close(); return; }
       btnAuthT.setText('Авторизация…');
       btnAuthR.disableInteractive();
       const ok = await YandexClient.auth();

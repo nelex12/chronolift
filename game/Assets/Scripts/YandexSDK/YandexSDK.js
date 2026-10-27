@@ -17,7 +17,13 @@ const YandexClient = {
     try {
       this.ysdk = await window.YaGames.init();
       await this.loadPlayer();
-      try { this.lb = this.ysdk.leaderboards ? await this.ysdk.leaderboards() : await this.ysdk.getLeaderboards(); } catch (e) { this.lb = null; }
+      // текущий SDK: ysdk.leaderboards — объект (setScore/getEntries), не функция; вызов
+      // ysdk.leaderboards() падал, и лидерборд на платформе был бы выключен.
+      // getLeaderboards() (устаревший) — только если нового объекта нет
+      try {
+        if (this.ysdk.leaderboards && typeof this.ysdk.leaderboards.getEntries === 'function') this.lb = this.ysdk.leaderboards;
+        else if (this.ysdk.getLeaderboards) this.lb = await this.ysdk.getLeaderboards();
+      } catch (e) { this.lb = null; }
       this._subscribePlatformEvents();
     } catch (e) {
       this.ysdk = null;
@@ -65,7 +71,17 @@ const YandexClient = {
     } catch (e) { return false; }
   },
 
-  isAuthorized() { return !!(this.player && this.player.signature); },
+  /* player.signature есть только при getPlayer({ signed: true }) — по нему вошедший игрок
+     считался бы гостем. По документации: player.isAuthorized(); getMode() — устаревший запасной путь */
+  isAuthorized() {
+    const p = this.player;
+    if (!p) return false;
+    try {
+      if (typeof p.isAuthorized === 'function') return !!p.isAuthorized();
+      if (typeof p.getMode === 'function') return p.getMode() !== 'lite';
+    } catch (e) { return false; }
+    return !!p.signature;
+  },
   getName() { return (this.player && this.player.getName) ? (this.player.getName() || 'Игрок') : 'Игрок'; },
 
   /* ---------- облачные сохранения ---------- */
@@ -106,12 +122,16 @@ const YandexClient = {
   /* ---------- лидерборды ---------- */
   async lbSet(name, score) {
     if (!this.lb) return;
-    try { await this.lb.setLeaderboardScore(name, score); } catch (e) {}
+    try {
+      if (this.lb.setScore) await this.lb.setScore(name, score);
+      else await this.lb.setLeaderboardScore(name, score);
+    } catch (e) {}
   },
   async lbTop(name, qty) {
     if (!this.lb) return null;
     try {
-      return await this.lb.getLeaderboardEntries(name, { quantityTop: qty, includeUser: true });
+      const opts = { quantityTop: qty, includeUser: true };
+      return this.lb.getEntries ? await this.lb.getEntries(name, opts) : await this.lb.getLeaderboardEntries(name, opts);
     } catch (e) { return null; }
   },
 

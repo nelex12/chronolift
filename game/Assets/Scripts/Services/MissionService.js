@@ -21,14 +21,18 @@ const MissionService = {
     return h >>> 0;
   },
 
-  /* выбор 3 миссий из пула по дате (одинаков для всех устройств игрока) */
+  /* выбор 3 миссий из пула по дате (одинаков для всех устройств игрока).
+   * Миссии дня — с разными счётчиками (type): иначе «30 этажей» и «60 этажей»
+   * засчитываются одним действием и фактически миссий меньше трёх */
   selectFor(dateStr) {
     let s = this.seedOf(dateStr) || 1;
     const rand = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
-    const pool = MISSIONS.slice();
+    let pool = MISSIONS.slice();
     const picked = [];
     for (let i = 0; i < this.PER_DAY && pool.length; i++) {
-      picked.push(pool.splice(Math.floor(rand() * pool.length), 1)[0].id);
+      const m = pool.splice(Math.floor(rand() * pool.length), 1)[0];
+      picked.push(m.id);
+      pool = pool.filter((x) => x.type !== m.type);
     }
     return picked;
   },

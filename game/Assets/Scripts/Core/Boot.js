@@ -8,6 +8,11 @@ window.__ERRORS = [];
 window.addEventListener('error', (e) => {
   window.__ERRORS.push(String(e.message || e) + ' @ ' + String((e.error && e.error.stack) || '').split('\n')[1]);
 });
+// ошибки в async-коде (весь запуск ниже — async) не доходят до 'error', ловим отдельно
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason;
+  window.__ERRORS.push('unhandled rejection: ' + String((r && r.message) || r) + ' @ ' + String((r && r.stack) || '').split('\n')[1]);
+});
 window.__AUTOTEST = /[?&]autotest=1/.test(location.search);
 
 class BootScene extends Phaser.Scene {
@@ -52,7 +57,7 @@ class BootScene extends Phaser.Scene {
     render: { antialias: true, powerPreference: 'high-performance' },
     disableContextMenu: true,
     fps: { target: 60 },
-    scene: [BootScene, MenuScene, GameScene, GameOverScene, SkinsScene, ShopScene, AchievementsScene, MissionsScene]
+    scene: [BootScene, MenuScene, GameScene, GameOverScene, SkinsScene, ShopScene, AchievementsScene, MissionsScene, SettingsScene]
   });
 
   // 3.1) требования Яндекс Игр: готовность + пауза/возобновление платформы

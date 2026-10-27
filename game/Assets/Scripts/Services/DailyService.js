@@ -5,7 +5,12 @@
 'use strict';
 
 const DailyService = {
-  _dateStr(d) { return d.toISOString().slice(0, 10); },
+  /* дата по местному времени игрока: сброс в его 00:00, как и таймер в сцене «Missions».
+   * toISOString() давал дату по UTC — в Екатеринбурге день менялся в 05:00, в Москве в 03:00 */
+  _dateStr(d) {
+    const p = (n) => (n < 10 ? '0' : '') + n;
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
   today() { return this._dateStr(new Date()); },
   yesterday() { const d = new Date(); d.setDate(d.getDate() - 1); return this._dateStr(d); },
 

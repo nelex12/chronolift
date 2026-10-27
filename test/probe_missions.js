@@ -89,7 +89,7 @@ async function main() {
     return JSON.stringify({
       version: save.version,
       date: save.missions.date,
-      today: new Date().toISOString().slice(0,10),
+      today: new Date().toLocaleDateString('sv-SE'),  // местная дата YYYY-MM-DD, сброс — в 00:00 игрока
       n: t.length,
       ids: t.map(function(m){return m.id;}),
       counters: save.missions.counters
@@ -180,7 +180,7 @@ async function main() {
   await sleep(4500);
   const m3 = JSON.parse(await evaluate(`JSON.stringify((function(){
     var t = MissionService.todayMissions();
-    return { date: save.missions.date, today: new Date().toISOString().slice(0,10),
+    return { date: save.missions.date, today: new Date().toLocaleDateString('sv-SE'),  // местная дата YYYY-MM-DD, сброс — в 00:00 игрока
              nCounters: Object.keys(save.missions.counters).length, n: t.length,
              claimed: t.filter(function(m){ return m.claimed; }).length };
   })())`));

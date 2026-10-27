@@ -36,11 +36,15 @@ class Hud {
   }
 
   toast(msg, color) {
-    // очередь: новый тост встаёт НАД предыдущими, наложений нет
-    const t = this.scene.add.text(240, 420 - this.toasts.length * 50, msg, {
+    // очередь: новый тост встаёт НАД предыдущими, наложений нет. Длинный текст переносится
+    // (раньше «МИССИЯ ВЫПОЛНЕНА: … — награда в меню» вылезал за края экрана 480 px)
+    // считаем от верхнего края самого высокого из живых тостов: они уплывают вверх
+    const top = this.toasts.reduce((y, x) => Math.min(y, x.obj.y - x.obj.height), 447);
+    const t = this.scene.add.text(240, Math.min(441, top - 6), msg, {   // низ первого — как раньше (центр 420)
       fontFamily: 'Arial', fontSize: '22px', fontStyle: 'bold', color: color || '#ffffff',
-      backgroundColor: '#101826dd', padding: { x: 12, y: 8 }
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(40);
+      backgroundColor: '#101826dd', padding: { x: 12, y: 8 },
+      align: 'center', wordWrap: { width: 430 }
+    }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(40);
     this.toasts.push({ obj: t, life: 1400 });
   }
 

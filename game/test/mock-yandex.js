@@ -13,15 +13,18 @@
     init: function () {
       log('YaGames.init');
       var player = {
-        signature: 'mock-signature',
         _name: 'Тестовый Игрок',
+        // как в SDK: signature только при getPlayer({ signed: true }), вход — через isAuthorized()
+        _authorized: true,
+        isAuthorized: function () { return this._authorized; },
         getName: function () { return this._name; },
         setData: function (d) { Object.keys(d).forEach(function (k) { cloudStore[k] = d[k]; }); log('player.setData:' + Object.keys(d).join(',')); return Promise.resolve(); },
         getData: function () { log('player.getData'); return Promise.resolve(JSON.parse(JSON.stringify(cloudStore))); }
       };
+      // как в текущем SDK: ysdk.leaderboards — объект с setScore/getEntries
       var lb = {
-        setLeaderboardScore: function (n, s) { lbScores[n] = s; log('lb.set:' + n + '=' + s); return Promise.resolve(); },
-        getLeaderboardEntries: function (n, o) {
+        setScore: function (n, s) { lbScores[n] = s; log('lb.set:' + n + '=' + s); return Promise.resolve(); },
+        getEntries: function (n, o) {
           log('lb.get:' + n);
           var mine = lbScores[n] || 0;
           return Promise.resolve({
@@ -29,7 +32,7 @@
               { rank: 1, score: 55, player: { publicName: 'Мок-Мастер', getAvatarSrc: function () { return ''; } } },
               { rank: 2, score: Math.max(mine, 21), player: { publicName: 'Тестовый Игрок', getAvatarSrc: function () { return ''; } } }
             ],
-            userRank: mine ? 2 : null
+            userRank: mine ? 2 : 0  // как в SDK: 0 — игрока нет в таблице
           });
         }
       };
@@ -38,9 +41,9 @@
         getPurchases: function () { log('payments.getPurchases'); return Promise.resolve(purchases.slice()); }
       };
       window.__YSDK = {
-        auth: { openAuthDialog: function () { log('auth.openAuthDialog'); return Promise.resolve(); } },
+        auth: { openAuthDialog: function () { log('auth.openAuthDialog'); player._authorized = true; return Promise.resolve(); } },
         getPlayer: function () { log('ysdk.getPlayer'); return Promise.resolve(player); },
-        leaderboards: function () { log('ysdk.leaderboards'); return Promise.resolve(lb); },
+        leaderboards: lb,
         getPayments: function () { log('ysdk.getPayments'); return Promise.resolve(pay); },
         adv: {
           showRewardedVideo: function (o) { log('adv.showRewardedVideo'); setTimeout(function () { o.callbacks.onRewarded(); o.callbacks.onClose(); }, 250); },

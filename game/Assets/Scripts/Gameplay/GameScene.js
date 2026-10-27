@@ -132,13 +132,16 @@ class GameScene extends Phaser.Scene {
     }
 
     for (const t of types) {
-      this.traps.push(new TRAP_CLASSES[t](this, ledgeY, diff, this.prefabs[t]));
-      // одноразовое интро новой угрозы (и после обучения тоже)
+      const trap = new TRAP_CLASSES[t](this, ledgeY, diff, this.prefabs[t]);
+      this.traps.push(trap);
+      // одноразовое интро новой угрозы (и после обучения тоже). Этажи создаются заранее,
+      // поэтому интро показывается, когда этаж подъезжает (showTrapIntros), а не при создании —
+      // иначе на старте обучения всплывали все 5 надписей разом
       save.seenTraps = save.seenTraps || {};
-      if (!save.seenTraps[t]) {
-        save.seenTraps[t] = true;
-        const names = { laser: 'ЛАЗЕРНАЯ СЕТЬ', saw: 'ПИЛА', spikes: 'ШИПЫ', crusher: 'ГИДРАВЛИЧЕСКИЙ ПРЕСС', tesla: 'ТЕСЛА-ДУГА' };
-        this.hud.toast('НОВАЯ УГРОЗА: ' + names[t], '#ffe89b');
+      this.introQueued = this.introQueued || {};
+      if (!save.seenTraps[t] && !this.introQueued[t]) {
+        this.introQueued[t] = true;
+        trap.introType = t;
       }
     }
 
@@ -245,6 +248,7 @@ class GameScene extends Phaser.Scene {
       }
     }
 
+    this.showTrapIntros();
     this.checkDanger();
     this.collectCoins();
     this.updateVisuals(dtMs, time);
@@ -257,6 +261,16 @@ class GameScene extends Phaser.Scene {
     this.updateHintVisibility();
 
     if (this.floorsPassed >= 5 && !save.tutorialDone) { save.tutorialDone = true; saveNow(); }
+  }
+
+  showTrapIntros() {
+    const names = { laser: 'ЛАЗЕРНАЯ СЕТЬ', saw: 'ПИЛА', spikes: 'ШИПЫ', crusher: 'ГИДРАВЛИЧЕСКИЙ ПРЕСС', tesla: 'ТЕСЛА-ДУГА' };
+    for (const tr of this.traps) {
+      if (!tr.introType || Math.abs(tr.ledgeY - this.roofY) > 420) continue;  // этаж ещё за кадром
+      save.seenTraps[tr.introType] = true;
+      this.hud.toast('НОВАЯ УГРОЗА: ' + names[tr.introType], '#ffe89b');
+      tr.introType = null;
+    }
   }
 
   autoHold() {
