@@ -464,6 +464,11 @@ class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
 
     c.add([dim, title, sub, btnAdR, btnAdT, btnCoinR, btnCoinT, noT]);
+    // закрепить на экране и сами кнопки: Phaser проверяет нажатие по scrollFactor объекта,
+    // а не контейнера. Без этого область нажатия уезжала вместе с камерой забега, и ни одна
+    // кнопка оффера не нажималась. setScrollFactor(0, 0, true) у контейнера в этой сборке
+    // до детей не доходит (проверено), поэтому каждому явно
+    c.list.forEach((o) => o.setScrollFactor(0));
 
     btnAdR.on('pointerdown', async () => {
       btnAdT.setText('Загрузка рекламы…');

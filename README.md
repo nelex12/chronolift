@@ -122,6 +122,7 @@ node test/audit_passability.js # аудит проходимости генер�
 node test/probe_yandex.js      # мок Яндекс SDK: облако, lb, платежи, реклама
 node test/probe_pause.js       # пауза/возобновление платформы
 node test/probe_missions.js    # миссии: хуки в геймплее, забор награды, смена дня
+node test/probe_revive.js      # после смерти: кнопки «реклама», «за монеты», «отказаться»
 node test/shots_defense.js     # переснять скриншоты для docs/DEFENSE.md
 ```
 
