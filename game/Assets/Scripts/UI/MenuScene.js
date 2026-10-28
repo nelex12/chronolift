@@ -11,7 +11,6 @@ class MenuScene extends Phaser.Scene {
     this.sfx = new Sfx(this);
     this.cameras.main.setBackgroundColor('#0b0f17');
     Music.menu(this);
-    Music.preload(this, MUSIC.game);
     this.add.tileSprite(240, 400, 480, 800, 'bg_wall_panel')
       .setAlpha(0.25).setTint(0x39445a).setScale(1.35);
 
