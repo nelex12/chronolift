@@ -5,8 +5,7 @@
 Единственная защита — **заморозка времени**: зажми экран (или пробел), чтобы
 остановить механизмы и проскользнуть между ними.
 
-> **Запустить без интернета и без установки:** скачать архив ветки
-> (https://github.com/nelex12/chronolift/archive/refs/heads/fixes-and-defense.zip),
+> **Запустить без интернета и без установки:** скачать репозиторий (Code → Download ZIP),
 > распаковать и открыть двойным щелчком **`chronolift-offline.html`** — вся игра в одном файле
 > (Chrome, Edge, Яндекс Браузер, Firefox). Онлайн: https://nelex12.github.io/chronolift/game/test-yandex.html
 
@@ -71,8 +70,8 @@
 
 ## Поиграть онлайн
 
-https://nelex12.github.io/chronolift/game/test-yandex.html — сборка из ветки `fixes-and-defense`
-форка (GitHub Pages), с имитацией Яндекс SDK. Ничего устанавливать не нужно, работает и на телефоне.
+https://nelex12.github.io/chronolift/game/test-yandex.html — сборка из `main`
+форка nelex12/chronolift (GitHub Pages), с имитацией Яндекс SDK. Ничего устанавливать не нужно, работает и на телефоне.
 
 ## Игра одним файлом (без интернета)
 
