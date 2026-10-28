@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="ru">
 <!-- ХРОНОЛИФТ: офлайн-сборка в один файл, не редактировать вручную.
-     Пересобрать: node tools/build_offline.js (из game/test-yandex.html и game/Assets). Сборка 13ffd0d4e9da6009 -->
+     Пересобрать: node tools/build_offline.js (из game/test-yandex.html и game/Assets). Сборка 3bf833ce3778a0f1 -->
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>ХРОНОЛИФТ — офлайн</title>
-<meta name="chronolift-build" content="13ffd0d4e9da6009">
+<meta name="chronolift-build" content="3bf833ce3778a0f1">
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: #0b0f17; overflow: hidden; touch-action: none; }
   #game { width: 100%; height: 100%; }
@@ -128,7 +128,7 @@
     });
     return addFile.apply(this, arguments);
   };
-  window.__OFFLINE_BUILD = "13ffd0d4e9da6009";
+  window.__OFFLINE_BUILD = "3bf833ce3778a0f1";
 })();
 </script>
 <!-- Core -->
@@ -386,6 +386,57 @@ function fitCamera(scene) {
     return addText.call(this, x, y, text, Object.assign({ resolution: RENDER_SCALE }, style));
   };
 })();
+
+/* Часть функций — только после входа через Яндекс (требование курса, пара 17.09, 57:30): рекламу
+ * за вознаграждение Яндекс гостю не засчитает, магазин гостю недоступен. Вошёл — сразу onOk;
+ * гость — окно «Нужен вход». what — что именно требует входа («Покупки», «Реклама за награду»). */
+function requireAuth(scene, what, onOk) {
+  if (YandexClient.isAuthorized()) { onOk(); return; }
+  AnalyticsService.track('auth_required', { what: what });
+  const c = scene.add.container(240, 400).setDepth(90);
+  const dim = scene.add.rectangle(0, 0, 480, 800, 0x05080e, 0.85).setInteractive();   // клики мимо окна не проходят
+  const panel = scene.add.rectangle(0, 0, 400, 300, 0x101826, 0.98).setStrokeStyle(2, 0x57f2ff, 0.9);
+  const title = scene.add.text(0, -112, 'НУЖЕН ВХОД', {
+    fontFamily: 'Arial', fontSize: '24px', fontStyle: 'bold', color: '#57f2ff'
+  }).setOrigin(0.5);
+  const msg = scene.add.text(0, -52, what + ' доступны после входа через Яндекс:\nтак награда и покупки сохранятся в аккаунте', {
+    fontFamily: 'Arial', fontSize: '15px', color: '#cfe3f5', align: 'center', lineSpacing: 6, wordWrap: { width: 360 }
+  }).setOrigin(0.5);
+  const status = scene.add.text(0, 6, '', {
+    fontFamily: 'Arial', fontSize: '14px', color: '#ff9a9a', align: 'center', wordWrap: { width: 360 }
+  }).setOrigin(0.5);
+  const loginR = scene.add.rectangle(0, 62, 300, 54, 0x123a2e, 0.98).setStrokeStyle(2, 0x2fd6a3).setInteractive({ useHandCursor: true });
+  const loginT = scene.add.text(0, 62, 'ВОЙТИ ЧЕРЕЗ ЯНДЕКС', {
+    fontFamily: 'Arial', fontSize: '19px', fontStyle: 'bold', color: '#eaf6ff'
+  }).setOrigin(0.5);
+  const cancel = scene.add.text(0, 116, 'отмена', {
+    fontFamily: 'Arial', fontSize: '16px', color: '#9fb4c8'
+  }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+  c.add([dim, panel, title, msg, status, loginR, loginT, cancel]);
+  // закрепить на экране и само окно, и кнопки (в забеге камера едет; см. GameScene.showReviveOffer)
+  c.setScrollFactor(0);
+  c.list.forEach((o) => o.setScrollFactor(0));
+
+  loginR.on('pointerdown', async () => {
+    loginR.disableInteractive();
+    loginT.setText('Подключение к Яндексу…');
+    status.setText('');
+    const ok = await YandexClient.auth();
+    if (ok) {
+      AnalyticsService.track('auth_success', { from: what });
+      await resolveSaveFromCloud();
+      c.destroy();
+      onOk();
+      return;
+    }
+    loginT.setText('ВОЙТИ ЧЕРЕЗ ЯНДЕКС');
+    loginR.setInteractive({ useHandCursor: true });
+    status.setText(YandexClient.ysdk
+      ? 'Не удалось войти. Проверьте интернет и попробуйте ещё раз'
+      : 'Вход недоступен: нет связи с Яндекс Играми');
+  });
+  cancel.on('pointerdown', () => c.destroy());
+}
 
 function makeButton(scene, x, y, w, h, label, opts) {
   opts = opts || {};
@@ -1516,6 +1567,94 @@ class FloorPlanner {
 }
 
 </script>
+<script>/* Assets/Scripts/Gameplay/Shockwave.js */
+/* ХРОНОЛИФТ — Gameplay/Shockwave.js
+ * Волна при остановке времени: от персонажа расходится кольцо; пиксели под кольцом инвертируются
+ * (негатив, как фильтр — только по периметру волны) и слегка преломляются, как в линзе.
+ * Это постобработка камеры (WebGL-шейдер). Шейдер подключается только на время волны (0,8 с),
+ * в остальное время лишнего прохода по экрану нет. При prefers-reduced-motion волны нет.
+ */
+'use strict';
+
+const SHOCKWAVE_FRAG = `
+precision mediump float;
+uniform sampler2D uMainSampler;
+uniform vec2 uCenter;      // центр волны в координатах текстуры (0..1)
+uniform float uAspect;     // ширина / высота кадра — чтобы кольцо было круглым
+uniform float uRadius;     // радиус кольца в долях высоты кадра
+uniform float uWidth;      // полуширина кольца
+uniform float uStrength;   // сила преломления
+uniform float uAlpha;      // затухание к концу волны
+varying vec2 outTexCoord;
+
+void main() {
+  vec2 uv = outTexCoord;
+  vec2 d = uv - uCenter;
+  d.x *= uAspect;
+  float dist = length(d);
+  float x = (dist - uRadius) / uWidth;               // -1..1 внутри кольца
+  float ring = 1.0 - smoothstep(0.85, 1.0, abs(x));   // полоса с почти резким краем
+  vec2 dir = dist > 0.0001 ? d / dist : vec2(0.0);
+  dir.x /= uAspect;
+  vec2 offs = dir * sin(x * 3.14159) * uStrength * ring * uAlpha;   // преломление по кольцу
+  vec4 base = texture2D(uMainSampler, uv - offs);
+  vec3 col = mix(base.rgb, vec3(1.0) - base.rgb, ring * uAlpha);     // чистый негатив под кольцом
+  gl_FragColor = vec4(col, base.a);
+}`;
+
+class ShockwavePipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
+  constructor(game) {
+    super({ game: game, name: 'ShockwavePipeline', fragShader: SHOCKWAVE_FRAG });
+    this.wave = { x: 0.5, y: 0.5, k: 0 };
+  }
+  onPreRender() {
+    const k = this.wave.k;
+    const ease = 1 - Math.pow(1 - k, 2);                // быстро стартует, плавно тормозит
+    this.set2f('uCenter', this.wave.x, this.wave.y);
+    this.set1f('uAspect', this.renderer.width / this.renderer.height);
+    this.set1f('uRadius', 0.03 + ease * 0.75);          // к концу — примерно до краёв экрана
+    this.set1f('uWidth', 0.035 + 0.03 * ease);
+    this.set1f('uStrength', 0.03);
+    this.set1f('uAlpha', 1 - Math.pow(k, 3));           // негатив полный почти до конца, потом гаснет
+  }
+}
+
+const Shockwave = {
+  DURATION: 800,
+  reduced: !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches),
+
+  /* шейдер волны на камере или null (getPostPipeline в Phaser 3.88 при отсутствии возвращает []) */
+  pipe(cam) { return (cam.postPipelines || []).find((p) => p instanceof ShockwavePipeline) || null; },
+
+  /* запустить волну из точки мира (x, y); повторный запуск перезапускает её */
+  start(scene, x, y) {
+    if (this.reduced || scene.renderer.type !== Phaser.WEBGL) return;
+    const cam = scene.cameras.main;
+    if (!this.pipe(cam)) cam.setPostPipeline(ShockwavePipeline);
+    scene.shockwave = { t0: scene.time.now, x: x, y: y };
+    this.update(scene);
+  },
+
+  /* каждый кадр: прогресс и центр (персонаж движется вместе с камерой) */
+  update(scene) {
+    const s = scene.shockwave;
+    if (!s) return;
+    const cam = scene.cameras.main;
+    const k = (scene.time.now - s.t0) / this.DURATION;
+    const p = this.pipe(cam);
+    if (k >= 1 || !p) {
+      cam.removePostPipeline(ShockwavePipeline);
+      scene.shockwave = null;
+      return;
+    }
+    // точка мира -> доля кадра; камера увеличивает мир от левого верхнего угла (fitCamera)
+    p.wave.x = (s.x - cam.scrollX) / CFG.W;
+    p.wave.y = 1 - (s.y - cam.scrollY) / CFG.H;          // текстура кадра перевёрнута по вертикали
+    p.wave.k = k;
+  }
+};
+
+</script>
 <script>/* Assets/Scripts/Gameplay/Minigames.js */
 /* ХРОНОЛИФТ — Gameplay/Minigames.js
  * Простые миниигры внутри забега (один ввод — тот же тап/удержание):
@@ -1744,6 +1883,11 @@ class GameScene extends Phaser.Scene {
     }).setDepth(16);
 
     this.bindInput();
+    // волна обновляется событием сцены, а не update(): update после смерти не вызывается,
+    // и волна застыла бы на экране
+    const tickWave = () => Shockwave.update(this);
+    this.events.on('update', tickWave);
+    this.events.once('shutdown', () => this.events.off('update', tickWave));
 
     this.minigames = new MinigameManager(this);
     this.minigameHintShown = false;
@@ -1882,7 +2026,10 @@ class GameScene extends Phaser.Scene {
   setFrozen(f) {
     if (f === this.frozen) return;
     this.frozen = f;
-    if (f) { this.hasFrozenOnce = true; this.sfx.freeze(); } else this.sfx.unfreeze();
+    if (f) {
+      this.hasFrozenOnce = true; this.sfx.freeze();
+      Shockwave.start(this, 240, this.roofY - 46);   // волна от персонажа (Gameplay/Shockwave.js)
+    } else this.sfx.unfreeze();
   }
 
   update(time, delta) {
@@ -2222,13 +2369,23 @@ class GameScene extends Phaser.Scene {
     // до детей не доходит (проверено), поэтому каждому явно
     c.list.forEach((o) => o.setScrollFactor(0));
 
-    btnAdR.on('pointerdown', async () => {
+    // реклама за награду — только после входа (requireAuth); ошибка — сообщение под кнопкой
+    const adMsg = this.add.text(0, -2, '', {
+      fontFamily: 'Arial', fontSize: '13px', color: '#ff9a9a', align: 'center'
+    }).setOrigin(0.5).setScrollFactor(0);
+    c.add(adMsg);
+    btnAdR.on('pointerdown', () => requireAuth(this, 'Реклама за награду', async () => {
       btnAdT.setText('Загрузка рекламы…');
+      adMsg.setText('');
       btnAdR.disableInteractive();
       const ok = await AdsService.showRewarded('revive');
       if (ok) { c.destroy(); this.revive(); AnalyticsService.track('revive', { method: 'ad' }); }
-      else { btnAdT.setText('▶ ВОЗРОДИТЬСЯ БЕСПЛАТНО (реклама)'); btnAdR.setInteractive({ useHandCursor: true }); }
-    });
+      else {
+        btnAdT.setText('▶ ВОЗРОДИТЬСЯ БЕСПЛАТНО (реклама)');
+        adMsg.setText('Награда не получена: реклама закрыта раньше или недоступна');
+        btnAdR.setInteractive({ useHandCursor: true });
+      }
+    }));
     btnCoinR.on('pointerdown', () => {
       if (!canPay) return;
       if (EconomyService.spend(CFG.reviveCostCoins, 'revive')) {
@@ -2441,6 +2598,7 @@ class MenuScene extends Phaser.Scene {
         this.scene.restart();
       } else {
         this.refreshAuthLabel();
+        this.hudToast(YandexClient.ysdk ? 'Не удалось войти через Яндекс' : 'Нет связи с Яндекс Играми', '#ff9a9a');
       }
     });
 
@@ -2649,21 +2807,29 @@ class GameOverScene extends Phaser.Scene {
     this.x2t = this.add.text(240, playY + 152, '×2 МОНЕТЫ (реклама)', {
       fontFamily: 'Arial', fontSize: '20px', fontStyle: 'bold', color: '#ffe89b'
     }).setOrigin(0.5);
-    x2r.on('pointerdown', async () => {
+    // реклама за награду — только после входа (requireAuth); ошибка — сообщение под кнопкой
+    const adMsg = this.add.text(240, playY + 188, '', {
+      fontFamily: 'Arial', fontSize: '13px', color: '#ff9a9a', align: 'center'
+    }).setOrigin(0.5);
+    x2r.on('pointerdown', () => {
       if (this.x2used) return;
-      this.x2t.setText('Загрузка рекламы…');
-      x2r.disableInteractive();
-      const ok = await AdsService.showRewarded('double_coins');
-      if (ok) {
-        this.x2used = true;
-        EconomyService.grant(d.coins, 'ad_double');
-        this.x2t.setText('МОНЕТЫ УДВОЕНЫ! +' + d.coins);
-        x2r.setFillStyle(0x123a2e, 1);
-        this.sfx.coin();
-      } else {
-        this.x2t.setText('×2 МОНЕТЫ (реклама)');
-        x2r.setInteractive({ useHandCursor: true });
-      }
+      requireAuth(this, 'Реклама за награду', async () => {
+        this.x2t.setText('Загрузка рекламы…');
+        adMsg.setText('');
+        x2r.disableInteractive();
+        const ok = await AdsService.showRewarded('double_coins');
+        if (ok) {
+          this.x2used = true;
+          EconomyService.grant(d.coins, 'ad_double');
+          this.x2t.setText('МОНЕТЫ УДВОЕНЫ! +' + d.coins);
+          x2r.setFillStyle(0x123a2e, 1);
+          this.sfx.coin();
+        } else {
+          this.x2t.setText('×2 МОНЕТЫ (реклама)');
+          adMsg.setText('Награда не получена: реклама закрыта раньше или недоступна');
+          x2r.setInteractive({ useHandCursor: true });
+        }
+      });
     });
 
     this.add.text(240, 760, 'Всего монет: ' + save.coins + '   ·   Рекорд: ' + save.best.floors + ' этажей', {
@@ -2768,7 +2934,7 @@ class ShopScene extends Phaser.Scene {
 
     makeButton(this, 240, 620, 300, 50, 'ВОССТАНОВИТЬ ПОКУПКИ', {
       fontSize: 18, accent: 0xffc93c, color: 0x3a2e10,
-      onClick: async () => { await this.restore(); }
+      onClick: () => requireAuth(this, 'Покупки', () => this.restore())   // покупки — только после входа
     });
     makeButton(this, 240, 690, 220, 54, 'НАЗАД', {
       onClick: () => this.scene.start('Menu')
@@ -2803,7 +2969,7 @@ class ShopScene extends Phaser.Scene {
         }).setOrigin(1, 0.5);
         const buy = makeButton(this, 352, y + 22, 116, 40, 'КУПИТЬ', {
           fontSize: 15, color: 0x3a2e10, accent: 0xffc93c,
-          onClick: () => this.buy(p.id)
+          onClick: () => requireAuth(this, 'Покупки', () => this.buy(p.id))
         });
         this.cards.push(price, buy.rect, buy.txt);
       }
@@ -3138,6 +3304,7 @@ class BootScene extends Phaser.Scene {
     backgroundColor: '#0b0f17',
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     render: { antialias: true, powerPreference: 'high-performance' },
+    pipeline: { ShockwavePipeline: ShockwavePipeline },   // волна при остановке времени (Gameplay/Shockwave.js)
     disableContextMenu: true,
     fps: { target: 60 },
     scene: [BootScene, MenuScene, GameScene, GameOverScene, SkinsScene, ShopScene, AchievementsScene, MissionsScene, SettingsScene, MusicLoaderScene]

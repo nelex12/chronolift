@@ -19,7 +19,7 @@ class ShopScene extends Phaser.Scene {
 
     makeButton(this, 240, 620, 300, 50, 'ВОССТАНОВИТЬ ПОКУПКИ', {
       fontSize: 18, accent: 0xffc93c, color: 0x3a2e10,
-      onClick: async () => { await this.restore(); }
+      onClick: () => requireAuth(this, 'Покупки', () => this.restore())   // покупки — только после входа
     });
     makeButton(this, 240, 690, 220, 54, 'НАЗАД', {
       onClick: () => this.scene.start('Menu')
@@ -54,7 +54,7 @@ class ShopScene extends Phaser.Scene {
         }).setOrigin(1, 0.5);
         const buy = makeButton(this, 352, y + 22, 116, 40, 'КУПИТЬ', {
           fontSize: 15, color: 0x3a2e10, accent: 0xffc93c,
-          onClick: () => this.buy(p.id)
+          onClick: () => requireAuth(this, 'Покупки', () => this.buy(p.id))
         });
         this.cards.push(price, buy.rect, buy.txt);
       }

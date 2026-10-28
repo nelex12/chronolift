@@ -86,6 +86,7 @@ class MenuScene extends Phaser.Scene {
         this.scene.restart();
       } else {
         this.refreshAuthLabel();
+        this.hudToast(YandexClient.ysdk ? 'Не удалось войти через Яндекс' : 'Нет связи с Яндекс Играми', '#ff9a9a');
       }
     });
 

@@ -60,6 +60,11 @@ class GameScene extends Phaser.Scene {
     }).setDepth(16);
 
     this.bindInput();
+    // волна обновляется событием сцены, а не update(): update после смерти не вызывается,
+    // и волна застыла бы на экране
+    const tickWave = () => Shockwave.update(this);
+    this.events.on('update', tickWave);
+    this.events.once('shutdown', () => this.events.off('update', tickWave));
 
     this.minigames = new MinigameManager(this);
     this.minigameHintShown = false;
@@ -198,7 +203,10 @@ class GameScene extends Phaser.Scene {
   setFrozen(f) {
     if (f === this.frozen) return;
     this.frozen = f;
-    if (f) { this.hasFrozenOnce = true; this.sfx.freeze(); } else this.sfx.unfreeze();
+    if (f) {
+      this.hasFrozenOnce = true; this.sfx.freeze();
+      Shockwave.start(this, 240, this.roofY - 46);   // волна от персонажа (Gameplay/Shockwave.js)
+    } else this.sfx.unfreeze();
   }
 
   update(time, delta) {
@@ -538,13 +546,23 @@ class GameScene extends Phaser.Scene {
     // до детей не доходит (проверено), поэтому каждому явно
     c.list.forEach((o) => o.setScrollFactor(0));
 
-    btnAdR.on('pointerdown', async () => {
+    // реклама за награду — только после входа (requireAuth); ошибка — сообщение под кнопкой
+    const adMsg = this.add.text(0, -2, '', {
+      fontFamily: 'Arial', fontSize: '13px', color: '#ff9a9a', align: 'center'
+    }).setOrigin(0.5).setScrollFactor(0);
+    c.add(adMsg);
+    btnAdR.on('pointerdown', () => requireAuth(this, 'Реклама за награду', async () => {
       btnAdT.setText('Загрузка рекламы…');
+      adMsg.setText('');
       btnAdR.disableInteractive();
       const ok = await AdsService.showRewarded('revive');
       if (ok) { c.destroy(); this.revive(); AnalyticsService.track('revive', { method: 'ad' }); }
-      else { btnAdT.setText('▶ ВОЗРОДИТЬСЯ БЕСПЛАТНО (реклама)'); btnAdR.setInteractive({ useHandCursor: true }); }
-    });
+      else {
+        btnAdT.setText('▶ ВОЗРОДИТЬСЯ БЕСПЛАТНО (реклама)');
+        adMsg.setText('Награда не получена: реклама закрыта раньше или недоступна');
+        btnAdR.setInteractive({ useHandCursor: true });
+      }
+    }));
     btnCoinR.on('pointerdown', () => {
       if (!canPay) return;
       if (EconomyService.spend(CFG.reviveCostCoins, 'revive')) {

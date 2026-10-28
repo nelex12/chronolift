@@ -21,6 +21,57 @@ function fitCamera(scene) {
   };
 })();
 
+/* Часть функций — только после входа через Яндекс (требование курса, пара 17.09, 57:30): рекламу
+ * за вознаграждение Яндекс гостю не засчитает, магазин гостю недоступен. Вошёл — сразу onOk;
+ * гость — окно «Нужен вход». what — что именно требует входа («Покупки», «Реклама за награду»). */
+function requireAuth(scene, what, onOk) {
+  if (YandexClient.isAuthorized()) { onOk(); return; }
+  AnalyticsService.track('auth_required', { what: what });
+  const c = scene.add.container(240, 400).setDepth(90);
+  const dim = scene.add.rectangle(0, 0, 480, 800, 0x05080e, 0.85).setInteractive();   // клики мимо окна не проходят
+  const panel = scene.add.rectangle(0, 0, 400, 300, 0x101826, 0.98).setStrokeStyle(2, 0x57f2ff, 0.9);
+  const title = scene.add.text(0, -112, 'НУЖЕН ВХОД', {
+    fontFamily: 'Arial', fontSize: '24px', fontStyle: 'bold', color: '#57f2ff'
+  }).setOrigin(0.5);
+  const msg = scene.add.text(0, -52, what + ' доступны после входа через Яндекс:\nтак награда и покупки сохранятся в аккаунте', {
+    fontFamily: 'Arial', fontSize: '15px', color: '#cfe3f5', align: 'center', lineSpacing: 6, wordWrap: { width: 360 }
+  }).setOrigin(0.5);
+  const status = scene.add.text(0, 6, '', {
+    fontFamily: 'Arial', fontSize: '14px', color: '#ff9a9a', align: 'center', wordWrap: { width: 360 }
+  }).setOrigin(0.5);
+  const loginR = scene.add.rectangle(0, 62, 300, 54, 0x123a2e, 0.98).setStrokeStyle(2, 0x2fd6a3).setInteractive({ useHandCursor: true });
+  const loginT = scene.add.text(0, 62, 'ВОЙТИ ЧЕРЕЗ ЯНДЕКС', {
+    fontFamily: 'Arial', fontSize: '19px', fontStyle: 'bold', color: '#eaf6ff'
+  }).setOrigin(0.5);
+  const cancel = scene.add.text(0, 116, 'отмена', {
+    fontFamily: 'Arial', fontSize: '16px', color: '#9fb4c8'
+  }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+  c.add([dim, panel, title, msg, status, loginR, loginT, cancel]);
+  // закрепить на экране и само окно, и кнопки (в забеге камера едет; см. GameScene.showReviveOffer)
+  c.setScrollFactor(0);
+  c.list.forEach((o) => o.setScrollFactor(0));
+
+  loginR.on('pointerdown', async () => {
+    loginR.disableInteractive();
+    loginT.setText('Подключение к Яндексу…');
+    status.setText('');
+    const ok = await YandexClient.auth();
+    if (ok) {
+      AnalyticsService.track('auth_success', { from: what });
+      await resolveSaveFromCloud();
+      c.destroy();
+      onOk();
+      return;
+    }
+    loginT.setText('ВОЙТИ ЧЕРЕЗ ЯНДЕКС');
+    loginR.setInteractive({ useHandCursor: true });
+    status.setText(YandexClient.ysdk
+      ? 'Не удалось войти. Проверьте интернет и попробуйте ещё раз'
+      : 'Вход недоступен: нет связи с Яндекс Играми');
+  });
+  cancel.on('pointerdown', () => c.destroy());
+}
+
 function makeButton(scene, x, y, w, h, label, opts) {
   opts = opts || {};
   const c = opts.color || 0x1d2635;

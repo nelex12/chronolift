@@ -56,6 +56,7 @@ class BootScene extends Phaser.Scene {
     backgroundColor: '#0b0f17',
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     render: { antialias: true, powerPreference: 'high-performance' },
+    pipeline: { ShockwavePipeline: ShockwavePipeline },   // волна при остановке времени (Gameplay/Shockwave.js)
     disableContextMenu: true,
     fps: { target: 60 },
     scene: [BootScene, MenuScene, GameScene, GameOverScene, SkinsScene, ShopScene, AchievementsScene, MissionsScene, SettingsScene, MusicLoaderScene]

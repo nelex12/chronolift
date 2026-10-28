@@ -74,21 +74,29 @@ class GameOverScene extends Phaser.Scene {
     this.x2t = this.add.text(240, playY + 152, '×2 МОНЕТЫ (реклама)', {
       fontFamily: 'Arial', fontSize: '20px', fontStyle: 'bold', color: '#ffe89b'
     }).setOrigin(0.5);
-    x2r.on('pointerdown', async () => {
+    // реклама за награду — только после входа (requireAuth); ошибка — сообщение под кнопкой
+    const adMsg = this.add.text(240, playY + 188, '', {
+      fontFamily: 'Arial', fontSize: '13px', color: '#ff9a9a', align: 'center'
+    }).setOrigin(0.5);
+    x2r.on('pointerdown', () => {
       if (this.x2used) return;
-      this.x2t.setText('Загрузка рекламы…');
-      x2r.disableInteractive();
-      const ok = await AdsService.showRewarded('double_coins');
-      if (ok) {
-        this.x2used = true;
-        EconomyService.grant(d.coins, 'ad_double');
-        this.x2t.setText('МОНЕТЫ УДВОЕНЫ! +' + d.coins);
-        x2r.setFillStyle(0x123a2e, 1);
-        this.sfx.coin();
-      } else {
-        this.x2t.setText('×2 МОНЕТЫ (реклама)');
-        x2r.setInteractive({ useHandCursor: true });
-      }
+      requireAuth(this, 'Реклама за награду', async () => {
+        this.x2t.setText('Загрузка рекламы…');
+        adMsg.setText('');
+        x2r.disableInteractive();
+        const ok = await AdsService.showRewarded('double_coins');
+        if (ok) {
+          this.x2used = true;
+          EconomyService.grant(d.coins, 'ad_double');
+          this.x2t.setText('МОНЕТЫ УДВОЕНЫ! +' + d.coins);
+          x2r.setFillStyle(0x123a2e, 1);
+          this.sfx.coin();
+        } else {
+          this.x2t.setText('×2 МОНЕТЫ (реклама)');
+          adMsg.setText('Награда не получена: реклама закрыта раньше или недоступна');
+          x2r.setInteractive({ useHandCursor: true });
+        }
+      });
     });
 
     this.add.text(240, 760, 'Всего монет: ' + save.coins + '   ·   Рекорд: ' + save.best.floors + ' этажей', {
