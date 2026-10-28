@@ -35,6 +35,7 @@ class BootScene extends Phaser.Scene {
     g.fillStyle(0x57f2ff, 1); g.fillCircle(8, 8, 8);
     g.generateTexture('dot_cyan', 16, 16);
     g.destroy();
+    this.scene.launch('MusicLoader');   // фоновая загрузка треков забега (Core/Music.js)
     this.scene.start('Menu');
   }
 }
@@ -58,7 +59,7 @@ class BootScene extends Phaser.Scene {
     render: { antialias: true, powerPreference: 'high-performance' },
     disableContextMenu: true,
     fps: { target: 60 },
-    scene: [BootScene, MenuScene, GameScene, GameOverScene, SkinsScene, ShopScene, AchievementsScene, MissionsScene, SettingsScene]
+    scene: [BootScene, MenuScene, GameScene, GameOverScene, SkinsScene, ShopScene, AchievementsScene, MissionsScene, SettingsScene, MusicLoaderScene]
   });
 
   // 3.1) требования Яндекс Игр: готовность + пауза/возобновление платформы
