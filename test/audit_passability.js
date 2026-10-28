@@ -1,106 +1,99 @@
-/* Аудит проходимости генератора ХРОНОЛИФТ.
- * Реплицирует формулы spawnFloor (GameScene.js) + геометрию/фазы Traps.js
- * и считает: худший энергетический бюджет этажа vs запас батареи,
- * а также читаемость телеграфов на человеческую реакцию 250 мс.
+/* Аудит проходимости: гарантия генератора этажей (Gameplay/FloorPlanner.js), без браузера.
+ *
+ * 1. Зоны TRAP_SPANS действительно охватывают все опасные rects() ловушек во всех фазах
+ *    (иначе гарантия считалась бы по неверным размерам).
+ * 2. Для тысяч сгенерированных шахт заново, независимо от планировщика, проходит «худший игрок»:
+ *    держит заморозку всё время, пока он в опасной зоне этажа (так проходится любая ловушка при
+ *    любой фазе, идеальная игра тратит не больше), и держит на 20% дольше — причём лишнее время
+ *    вне зоны, где он недополучает восстановление. Его запас не должен опускаться ниже 2.
+ * 3. Статистика серий: сколько угроз в серии, какие передышки.
  */
 'use strict';
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
 
-const CFG = { energyMax: 100, drainRate: 26, regenRate: 17, baseSpeed: 95, speedPerFloor: 4.5, maxSpeed: 270, floorH: 300 };
-const PREFABS = {
-  laser: { durOff: 1500, durTele: 380, durOn: 950 },
-  saw: { amplitude: 175, speed: 1.0 },
-  spikes: { durHidden: 1250, durWarn: 380, durOut: 850 },
-  crusher: { durUp: 1600, durWarn: 420, slamTime: 120, durHold: 700, durRise: 850 },
-  tesla: { durIdle: 1500, durCharge: 750, durZap: 480 }
+const S = path.join(__dirname, '..', 'game', 'Assets', 'Scripts');
+const PREFABS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'game', 'Assets', 'Prefabs', 'traps.json'), 'utf8'));
+const stubProto = {
+  setScale() { return this; }, setDepth() { return this; }, setAlpha() { return this; }, setX(x) { this.x = x; return this; },
+  setY(y) { this.y = y; return this; }, setTint() { return this; }, clearTint() { return this; }, destroy() {},
+  clear() {}, lineStyle() {}, beginPath() {}, moveTo() {}, lineTo() {}, strokePath() {}
 };
-const REACTION = 250; // мс, человеческая реакция
+const stub = (x, y) => Object.assign(Object.create(stubProto), { x: x || 0, y: y || 0 });
+const scene = { add: { image: stub, rectangle: stub, graphics: () => stub() }, trapTone() {}, time: { now: 0 }, cameras: { main: { shake() {} } } };
+const ctx = { window: { devicePixelRatio: 1, innerWidth: 480, innerHeight: 800 }, Phaser: { Math: { Linear: (a, b, t) => a + (b - a) * t } } };
+vm.createContext(ctx);
+vm.runInContext(['Core/Config.js', 'Gameplay/Traps.js', 'Gameplay/FloorPlanner.js']
+  .map(f => fs.readFileSync(path.join(S, f), 'utf8')).join('\n') +
+  '\nthis.CFG = CFG; this.TRAP_CLASSES = TRAP_CLASSES; this.TRAP_SPANS = TRAP_SPANS; this.FloorPlanner = FloorPlanner; this.PLAN = PLAN;', ctx);
+const { CFG, TRAP_CLASSES, TRAP_SPANS, FloorPlanner, PLAN } = ctx;
 
-// Ширина зоны контакта в px (из rects() Traps.js): dy-окно пересечения с игроком
-const CONTACT_PX = {
-  laser: 116,   // +47..+163
-  tesla: 116,   // +44..+160
-  spikes: 164,  // зона 70 (от остриёв до пола) + игрок 94; до 28.10 было 195
-  crusher: 182, // зона 88 (плита пресса) + игрок 94; до 28.10 было 246
-  saw: 198      // -39..+159
-};
-// Плохой случай по фазам: сколько px зоны придётся держать при неудачном тайминге
-const WORST_HOLD_PX = {
-  laser: 116,   // луч включён всю зону
-  tesla: 116,   // разряд всю зону
-  spikes: 164,  // warn стартовал на входе -> держим всю зону
-  crusher: 190, // warn на входе (зона пустая, но фриз до конца плиты)
-  saw: 198      // диск паркуем, держим всю зону
-};
+let fail = 0;
+const check = (ok, msg) => { console.log((ok ? 'PASS' : 'FAIL') + ' | ' + msg); if (!ok) fail++; };
 
-function speedAt(i) { return Math.min(CFG.maxSpeed, CFG.baseSpeed + i * CFG.speedPerFloor); }
-function diffAt(i) { return 1 + Math.min(2.2, i * 0.09); }
-
-// генератор spawnFloor (копия логики GameScene)
-function genFloor(i, rand) {
-  const pool5 = ['spikes', 'saw', 'laser', 'crusher', 'tesla'];
-  const combo = i >= 6 && rand() < Math.min(0.45, 0.12 + i * 0.02);
-  if (combo) {
-    const a = pool5[Math.floor(rand() * pool5.length)];
-    let b = pool5[Math.floor(rand() * pool5.length)];
-    if (b === a) b = pool5[(pool5.indexOf(a) + 1) % pool5.length];
-    return [a, b];
-  }
-  return [pool5[Math.floor(rand() * pool5.length)]];
-}
-
-// читаемость телеграфов: телеграф >= реакции? длина ON-окна >= реакции?
-function telegraphFair(type, diff) {
-  const p = PREFABS[type];
-  if (type === 'laser') return p.durTele >= REACTION && p.durOn / diff >= REACTION * 0.8;
-  if (type === 'spikes') return p.durWarn >= REACTION && p.durOut / diff >= REACTION * 0.5;
-  if (type === 'crusher') return p.durWarn >= REACTION;
-  if (type === 'tesla') return p.durCharge >= REACTION;
-  if (type === 'saw') { // период синуса: парковка возможна, период >= 2.4с
-    const period = 2 * Math.PI / (0.0016 * p.speed) / (0.9 + diff * 0.15);
-    return period >= 2400;
-  }
-  return true;
-}
-
-function audit() {
-  const WORST_FLOOR = 60;
-  let worstMargin = Infinity, worstAt = null;
-  const pairStats = {};
-  console.log('этаж | скор | сложн | худшая пара (из 200 сидов) | энергия худшего | запас%');
-  for (let i = 1; i <= WORST_FLOOR; i++) {
-    const v = speedAt(i), diff = diffAt(i);
-    let maxCost = 0, worstPair = null;
-    const seen = {};
-    for (let s = 0; s < 200; s++) {
-      const types = genFloor(i, Math.random);
-      const key = types.slice().sort().join('+');
-      seen[key] = (seen[key] || 0) + 1;
-      // энергия: сумма худших удержаний; реген между этажами учитываем отдельно
-      const holdPx = types.reduce((a, t) => a + WORST_HOLD_PX[t], 0);
-      const cost = CFG.drainRate * holdPx / v;              // энергия на этаже
-      if (cost > maxCost) { maxCost = cost; worstPair = key; }
-    }
-    // реген в пути к этажу: ~300px на скорости v (без заморозки)
-    const regen = CFG.regenRate * (CFG.floorH / v);
-    const pool = CFG.energyMax + regen;                    // что реально доступно на входе
-    const margin = pool - maxCost;
-    if (margin < worstMargin) { worstMargin = margin; worstAt = i; }
-    if (i <= 12 || i % 6 === 0) {
-      console.log(String(i).padStart(4) + ' | ' + v.toFixed(0).padStart(4) + ' | ' + diff.toFixed(2) + ' | ' +
-        worstPair.padEnd(16) + ' | ' + maxCost.toFixed(0).padStart(6) + ' | ' + (margin / pool * 100).toFixed(0).padStart(4) + '%');
-    }
-    // статистика пар (для комбо-баланса)
-    if (i >= 6 && i <= 10) {
-      for (const k of Object.keys(seen)) {
-        if (k.includes('+')) pairStats[k] = (pairStats[k] || 0) + seen[k];
+/* ---------- 1. зоны ---------- */
+for (const t of Object.keys(TRAP_SPANS)) {
+  let lo = Infinity, hi = -Infinity, out = 0;
+  for (const diff of [0.62, 1, 2, 3.2]) {
+    const tr = new TRAP_CLASSES[t](scene, 0, diff, PREFABS[t]);
+    for (let k = 0; k < 2000; k++) {
+      tr.update(5);
+      for (const r of tr.rects()) {
+        lo = Math.min(lo, r.y1); hi = Math.max(hi, r.y2);
+        if (r.y1 < TRAP_SPANS[t].y1 - 0.5 || r.y2 > TRAP_SPANS[t].y2 + 0.5) out++;
       }
     }
-    // честность телеграфов
-    if (!telegraphFair('laser', diff) || !telegraphFair('spikes', diff) || !telegraphFair('saw', diff)) {
-      console.log('  !! телеграфы короче реакции на этаже ' + i + ' (diff ' + diff.toFixed(2) + ')');
-    }
   }
-  console.log('\nХУДШИЙ ЗАПАС: этаж ' + worstAt + ', ' + worstMargin.toFixed(1) + ' энергии до перегрузки');
-  console.log('Пары комбо (этажи 6-10, частота):', JSON.stringify(pairStats));
+  check(out === 0 && lo - TRAP_SPANS[t].y1 < 2 && TRAP_SPANS[t].y2 - hi < 2,
+    `зона ${t}: TRAP_SPANS ${TRAP_SPANS[t].y1}..${TRAP_SPANS[t].y2}, по rects() ${Math.round(lo)}..${Math.round(hi)}`);
 }
-audit();
+
+/* ---------- 2. гарантия на сгенерированных шахтах ---------- */
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const LESSONS = ['laser', 'saw', 'spikes', 'crusher', 'tesla'];
+const SEEDS = +(process.env.SEEDS || 2000), FLOORS = 300;
+let worst = Infinity, worstAt = '';
+const series = [], rests = [];
+for (let seed = 1; seed <= SEEDS; seed++) {
+  const tutorial = seed % 4 === 0;                       // часть шахт — с обучением
+  const pl = new FloorPlanner(mulberry32(seed), TRAP_SPANS, CFG);
+  let y = 700, prev = null, E = CFG.energyMax, cur = null;
+  for (let j = 1; j <= FLOORS; j++) {
+    const p = pl.next(tutorial && j <= 5 ? [LESSONS[j - 1]] : null);
+    y -= p.step;
+    if (p.step > CFG.floorH && j > 1) rests.push({ j, extra: p.step - CFG.floorH });
+    if (p.seriesStart) { if (cur) series.push(cur); cur = { from: j, threats: 0 }; }
+    cur.threats += p.types.length;
+    // независимый пересчёт: зона этажа и свободный ход от предыдущей зоны
+    let y1 = Infinity, y2 = -Infinity;
+    p.types.forEach(t => { y1 = Math.min(y1, TRAP_SPANS[t].y1); y2 = Math.max(y2, TRAP_SPANS[t].y2); });
+    const v = Math.min(CFG.maxSpeed, CFG.baseSpeed + (j - 1) * CFG.speedPerFloor);
+    const enter = y + y2 + 92;                           // roofY, на котором игрок касается зоны
+    const exit = y + y1 - 2;                             // roofY, на котором выходит из неё
+    const free = (prev === null ? 700 : prev) - enter;
+    if (free < 0) { check(false, `seed ${seed} этаж ${j}: зоны соседних этажей перекрываются`); }
+    E = Math.min(CFG.energyMax, E + CFG.regenRate * free / v);
+    const tHold = (enter - exit) / v;                    // всё время контакта с зоной
+    E -= tHold * CFG.drainRate + (PLAN.margin - 1) * tHold * (CFG.drainRate + CFG.regenRate);
+    if (E < worst) { worst = E; worstAt = `seed ${seed} этаж ${j} (${p.types.join('+')})`; }
+    prev = exit;
+  }
+  series.push(cur);
+}
+check(worst >= PLAN.minEnergy, `худший запас при игре «держать всю зону» и держать на ${Math.round((PLAN.margin - 1) * 100)}% дольше: ${worst.toFixed(1)} (${worstAt}), ${SEEDS} шахт × ${FLOORS} этажей`);
+
+/* ---------- 3. серии и передышки ---------- */
+const byLen = {}; series.forEach(s => { byLen[s.threats] = (byLen[s.threats] || 0) + 1; });
+const over = series.filter(s => s.threats > PLAN.seriesMax).length;
+const short = series.filter(s => s.threats < PLAN.seriesMin).length;
+check(over === 0, `серий длиннее ${PLAN.seriesMax} угроз: ${over}`);
+console.log('     угроз в серии:', JSON.stringify(byLen), `| короче ${PLAN.seriesMin}: ${(100 * short / series.length).toFixed(2)}% (энергии хватило только на одну тяжёлую ловушку)`);
+for (const [a, b] of [[1, 10], [11, 20], [21, 40], [41, 300]]) {
+  const r = rests.filter(x => x.j >= a && x.j <= b), s = series.filter(x => x.from >= a && x.from <= b);
+  const avg = (arr, f) => arr.length ? (arr.reduce((m, x) => m + f(x), 0) / arr.length) : 0;
+  console.log(`     этажи ${String(a).padStart(3)}–${String(b).padEnd(3)}: в среднем ${avg(s, x => x.threats).toFixed(1)} угроз в серии, передышка +${Math.round(avg(r, x => x.extra))} px (макс +${r.reduce((m, x) => Math.max(m, x.extra), 0)})`);
+}
+
+console.log(fail ? 'FAIL: ' + fail : 'ALL PASS');
+process.exit(fail ? 1 : 0);

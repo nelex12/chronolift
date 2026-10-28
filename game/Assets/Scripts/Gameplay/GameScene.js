@@ -11,6 +11,7 @@ class GameScene extends Phaser.Scene {
   create() {
     fitCamera(this);
     this.sfx = new Sfx(this);
+    Music.game(this);                 // каждый забег — следующий трек
     this.hud = new Hud(this);
     this.skin = SKINS.find(s => s.id === (save.selectedSkin || 'orange')) || SKINS[0];
 
@@ -26,7 +27,10 @@ class GameScene extends Phaser.Scene {
     this.frozenAcc = 0;       // накопитель секунд заморозки для миссии frozen_secs
 
     this.traps = []; this.coinObjs = []; this.ledges = []; this.hints = [];
-    this.nextFloorY = 700 - CFG.floorH;
+    // этажи сериями с гарантией проходимости (Gameplay/FloorPlanner.js); lastFloorY — пол последнего этажа
+    this.planner = new FloorPlanner(Math.random, TRAP_SPANS, CFG);
+    this.lastFloorY = 700;
+    this.pendingPlan = null;
     this.floorIdx = 0;
     this.prefabs = this.cache.json.get('trap_prefabs');
 
@@ -106,7 +110,7 @@ class GameScene extends Phaser.Scene {
     this.ledges.push({ y: y, spr: t });
   }
 
-  spawnFloor(ledgeY) {
+  spawnFloor(ledgeY, types) {
     this.floorIdx++;
     const i = this.floorIdx;
     this.addLedge(ledgeY);
@@ -116,21 +120,7 @@ class GameScene extends Phaser.Scene {
       ? 0.62                                   // обучающие этажи — медленные циклы
       : 1 + Math.min(2.2, i * 0.09);
 
-    // 5 уроков обучения, дальше — случайный набор из 5 ловушек
-    const LESSONS = ['laser', 'saw', 'spikes', 'crusher', 'tesla'];
-    let types;
-    if (tutorialActive && i <= 5) types = [LESSONS[i - 1]];
-    else {
-      const r = Math.random();
-      const combo = i >= 6 && Math.random() < Math.min(0.45, 0.12 + i * 0.02);
-      const pool5 = ['spikes', 'saw', 'laser', 'crusher', 'tesla'];
-      if (combo) {
-        const a = pool5[Math.floor(Math.random() * pool5.length)];
-        let b = pool5[Math.floor(Math.random() * pool5.length)];
-        if (b === a) b = pool5[(pool5.indexOf(a) + 1) % pool5.length];
-        types = [a, b];
-      } else types = [pool5[Math.floor(r * pool5.length)]];
-    }
+    // типы ловушек выбирает FloorPlanner (ensureFloors): серии по 2–4 угрозы с передышками
 
     for (const t of types) {
       const trap = new TRAP_CLASSES[t](this, ledgeY, diff, this.prefabs[t]);
@@ -181,9 +171,19 @@ class GameScene extends Phaser.Scene {
   }
 
   ensureFloors() {
-    while (this.nextFloorY > this.roofY - 2400) {
-      this.spawnFloor(this.nextFloorY);
-      this.nextFloorY -= CFG.floorH;
+    // 5 уроков обучения (по одной ловушке), дальше — случайные серии от планировщика
+    const LESSONS = ['laser', 'saw', 'spikes', 'crusher', 'tesla'];
+    for (;;) {
+      if (!this.pendingPlan) {
+        const i = this.floorIdx + 1;
+        const lesson = !save.tutorialDone && i <= 5 ? [LESSONS[i - 1]] : null;
+        this.pendingPlan = this.planner.next(lesson);
+      }
+      const y = this.lastFloorY - this.pendingPlan.step;
+      if (y <= this.roofY - 2400) break;
+      this.spawnFloor(y, this.pendingPlan.types);
+      this.lastFloorY = y;
+      this.pendingPlan = null;
     }
   }
 
@@ -240,12 +240,12 @@ class GameScene extends Phaser.Scene {
     if (!this.frozen) {
       for (const tr of this.traps) {
         tr.update(dtMs);
-        if (!tr.done && this.roofY < tr.ledgeY - 150) { tr.done = true; this.onFloorPassed(tr); }
+        if (!tr.done && this.roofY < tr.ledgeY - 150) { tr.done = true; this.floorPassedBy(tr); }
       }
     } else {
       for (const tr of this.traps) {
         if (Math.abs(tr.ledgeY - this.roofY) < 320) tr.onFrozen();
-        if (!tr.done && this.roofY < tr.ledgeY - 150) { tr.done = true; this.onFloorPassed(tr); }
+        if (!tr.done && this.roofY < tr.ledgeY - 150) { tr.done = true; this.floorPassedBy(tr); }
       }
     }
 
@@ -253,6 +253,7 @@ class GameScene extends Phaser.Scene {
     this.checkDanger();
     this.collectCoins();
     this.updateVisuals(dtMs, time);
+    this.updateWarnAudio();
     this.hud.update(this, dtMs, time);
     this.cleanup();
     this.ensureFloors();
@@ -274,11 +275,30 @@ class GameScene extends Phaser.Scene {
     }
   }
 
+  /* автопилот самопроверки (?autotest=1): держать, только если в ближайших кадрах игрок коснётся
+   * опасной зоны или зоны, которая вот-вот включится. Раньше держал при любой опасной ловушке
+   * в 300 px и тратил энергию впустую (выручал двойной счёт этажей, разгонявший лифт) */
   autoHold() {
+    const v = Math.min(CFG.maxSpeed, CFG.baseSpeed + this.floorsPassed * CFG.speedPerFloor) * (window.__AUTOTEST ? 10 : 1);
+    const pr = this.playerRects()[0];
+    const y1 = pr.y1 - v / 60 * 2 - 4, x1 = pr.x1 - 12, x2 = pr.x2 + 12;
     for (const tr of this.traps) {
-      if (Math.abs(tr.ledgeY - this.roofY) < 300 && tr.dangerous) return true;
+      if (Math.abs(tr.ledgeY - this.roofY) > 320) continue;
+      const soon = !tr.dangerous && tr.msToDanger && tr.msToDanger() <= 60;
+      if (!tr.dangerous && !soon) continue;
+      for (const r of (tr.dangerous ? tr.rects() : tr.warnRects())) {
+        if (x1 < r.x2 && x2 > r.x1 && y1 < r.y2 && pr.y2 > r.y1) return true;
+      }
     }
     return false;
+  }
+
+  /* этаж засчитывается один раз, когда пройдены все его ловушки. Раньше onFloorPassed вызывался
+   * на каждую ловушку: этаж с двумя ловушками считался за два (скорость, счёт, миссии) */
+  floorPassedBy(tr) {
+    const same = this.traps.filter((x) => x.ledgeY === tr.ledgeY);
+    if (same.some((x) => !x.done)) return;
+    this.onFloorPassed({ hadFreezeWhileDanger: same.some((x) => x.hadFreezeWhileDanger) });
   }
 
   onFloorPassed(trap) {
@@ -379,6 +399,39 @@ class GameScene extends Phaser.Scene {
 
   /* Честные хитбоксы: зона игрока — зелёный контур,
    * зоны поражения ловушек — красная заливка (ярче, когда опасно). */
+  /* Громкость звука ловушки по расстоянию до игрока: впереди — нарастает по мере приближения,
+   * позади (уже проехал) — тише и быстрее затухает. 0 — не слышно (дальше ~1,5 этажа) */
+  trapGain(tr) {
+    const span = TRAP_SPANS[tr.type];
+    const zoneY = tr.ledgeY + (span.y1 + span.y2) / 2;
+    const d = zoneY - (this.roofY - 46);               // < 0 — зона выше игрока (впереди)
+    const k = d < 0 ? 1 + d / 480 : 1 - d / 260;
+    return k <= 0 ? 0 : k * k;
+  }
+
+  /* звуки самих ловушек (Traps.js) — через громкость по расстоянию; раньше звучали все 8 этажей вперёд */
+  trapTone(tr, freq, dur, type, vol, slideTo) {
+    const g = this.trapGain(tr);
+    if (g > 0.03) this.sfx.tone(freq, dur, type, vol * g, slideTo);
+  }
+
+  /* сигналы жёлтой зоны: три в такт вспышкам (drawHitboxes), каждый выше предыдущего,
+   * у каждой ловушки свой тембр (Sfx.warn), громкость — по расстоянию */
+  updateWarnAudio() {
+    for (const tr of this.traps) {
+      if (!tr.msToDanger) continue;
+      const ms = tr.dangerous ? 0 : tr.msToDanger();
+      if (ms <= 0 || ms > GameScene.WARN_MS) { tr.warnBeeps = 0; continue; }
+      const k = 1 - ms / GameScene.WARN_MS;
+      const due = k >= 5 / 6 ? 3 : k >= 1 / 2 ? 2 : k >= 1 / 6 ? 1 : 0;   // пики вспышек
+      if ((tr.warnBeeps || 0) < due) {
+        tr.warnBeeps = due;
+        const g = this.trapGain(tr);
+        if (g > 0.03) this.sfx.warn(tr.type, due, g);
+      }
+    }
+  }
+
   drawHitboxes() {
     const g = this.hitGfx;
     g.clear();

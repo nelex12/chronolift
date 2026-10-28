@@ -14,8 +14,10 @@ const AdsService = {
   showRewarded(placement) {
     AnalyticsService.track('ad_rewarded_requested', { placement: placement });
     YandexClient.gameplayStop();
+    Music.adStart();                 // во время рекламы звук игры выключен (требование Яндекс Игр)
     return new Promise((resolve) => {
       YandexClient.rewarded((granted) => {
+        Music.adEnd();
         YandexClient.gameplayStart();
         AnalyticsService.track('ad_rewarded_result', { placement: placement, granted: granted });
         resolve(granted);
@@ -30,7 +32,9 @@ const AdsService = {
     this.lastInterstitialAt = Date.now();
     AnalyticsService.track('ad_interstitial_shown', {});
     YandexClient.gameplayStop();
+    Music.adStart();
     return new Promise((resolve) => YandexClient.fullscreen(() => {
+      Music.adEnd();
       YandexClient.gameplayStart();
       resolve();
     }));

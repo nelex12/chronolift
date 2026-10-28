@@ -28,7 +28,8 @@ function defaultSave() {
     purchases: {},                              // id товара -> true (IAP, облачно)
     achievements: [],                           // id разблокированных достижений
     best: { score: 0, floors: 0 },
-    sound: true
+    sound: true,
+    music: true                                 // фоновая музыка (Core/Music.js), отдельно от звуков
   };
 }
 

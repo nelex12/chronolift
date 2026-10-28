@@ -10,6 +10,8 @@ class MenuScene extends Phaser.Scene {
     fitCamera(this);
     this.sfx = new Sfx(this);
     this.cameras.main.setBackgroundColor('#0b0f17');
+    Music.menu(this);
+    Music.preload(this, MUSIC.game);
     this.add.tileSprite(240, 400, 480, 800, 'bg_wall_panel')
       .setAlpha(0.25).setTint(0x39445a).setScale(1.35);
 
@@ -67,6 +69,7 @@ class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     snd.on('pointerdown', () => {
       save.sound = !save.sound; saveNow();
+      Music.refresh(this);
       snd.setText(save.sound ? '♪' : '✕').setColor(save.sound ? '#57f2ff' : '#5a6a7d');
     });
 

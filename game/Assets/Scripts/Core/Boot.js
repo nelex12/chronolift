@@ -25,6 +25,7 @@ class BootScene extends Phaser.Scene {
       'coin', 'bg_wall_panel', 'bg_floor_ledge'];
     for (const n of list) this.load.image(n, S + n + '.png');
     this.load.json('trap_prefabs', 'Assets/Prefabs/traps.json');
+    this.load.audio(MUSIC.menu, Music.files(MUSIC.menu));   // треки забега — в фоне из меню (Music.preload)
   }
   create() {
     const g = this.make.graphics({ x: 0, y: 0, add: false });

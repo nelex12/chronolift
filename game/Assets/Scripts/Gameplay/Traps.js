@@ -24,7 +24,7 @@ class LaserTrap {
   update(dtMs) {
     this.t += dtMs;
     if (this.phase === 'off' && this.t > this.durOff) { this.phase = 'tele'; this.t = 0; }
-    else if (this.phase === 'tele' && this.t > this.durTele) { this.phase = 'on'; this.t = 0; this.scene.sfx.tone(980, 0.1, 'square', 0.05); }
+    else if (this.phase === 'tele' && this.t > this.durTele) { this.phase = 'on'; this.t = 0; this.scene.trapTone(this, 980, 0.1, 'square', 0.05); }
     else if (this.phase === 'on' && this.t > this.durOn) { this.phase = 'off'; this.t = 0; }
     const tm = this.scene.time.now * 0.02;
     if (this.phase === 'tele') {
@@ -99,7 +99,7 @@ class SpikesTrap {
   update(dtMs) {
     this.t += dtMs;
     if (this.phase === 'hidden' && this.t > this.durHidden) { this.phase = 'warn'; this.t = 0; }
-    else if (this.phase === 'warn' && this.t > this.durWarn) { this.phase = 'out'; this.t = 0; this.scene.sfx.tone(140, 0.15, 'square', 0.07, 90); }
+    else if (this.phase === 'warn' && this.t > this.durWarn) { this.phase = 'out'; this.t = 0; this.scene.trapTone(this, 140, 0.15, 'square', 0.07, 90); }
     else if (this.phase === 'out' && this.t > this.durOut) { this.phase = 'hidden'; this.t = 0; }
     if (this.phase === 'warn') {
       const k = this.t / this.durWarn;
@@ -161,14 +161,14 @@ class CrusherTrap {
   update(dtMs) {
     this.t += dtMs;
     if (this.phase === 'up' && this.t > this.durUp) { this.phase = 'warn'; this.t = 0; this.shakeT = 0; }
-    else if (this.phase === 'warn' && this.t > this.durWarn) { this.phase = 'slam'; this.t = 0; this.scene.sfx.tone(120, 0.2, 'square', 0.09, 60); }
+    else if (this.phase === 'warn' && this.t > this.durWarn) { this.phase = 'slam'; this.t = 0; this.scene.trapTone(this, 120, 0.2, 'square', 0.09, 60); }
     else if (this.phase === 'slam') {
       const k = Math.min(1, this.t / this.slamTime);
       this.press.y = Phaser.Math.Linear(this.yUp, this.yDown, k * k); // ускорение вниз
       if (k >= 1) {
         this.phase = 'hold'; this.t = 0;
         this.scene.cameras.main.shake(120, 0.004);
-        this.scene.sfx.tone(70, 0.25, 'sawtooth', 0.12, 40);
+        this.scene.trapTone(this, 70, 0.25, 'sawtooth', 0.12, 40);
       }
     }
     else if (this.phase === 'hold' && this.t > this.durHold) { this.phase = 'rise'; this.t = 0; }
@@ -233,7 +233,7 @@ class TeslaTrap {
     if (this.phase === 'idle' && this.t > this.durIdle) { this.phase = 'charge'; this.t = 0; }
     else if (this.phase === 'charge' && this.t > this.durCharge) {
       this.phase = 'zap'; this.t = 0;
-      this.scene.sfx.tone(1600, 0.18, 'sawtooth', 0.08, 300);
+      this.scene.trapTone(this, 1600, 0.18, 'sawtooth', 0.08, 300);
     }
     else if (this.phase === 'zap' && this.t > this.durZap) { this.phase = 'idle'; this.t = 0; this.arc.clear(); this.glow.setAlpha(0); }
 
@@ -284,3 +284,14 @@ class TeslaTrap {
 
 TRAP_CLASSES.crusher = CrusherTrap;
 TRAP_CLASSES.tesla = TeslaTrap;
+
+/* Опасная зона каждой ловушки по вертикали относительно пола этажа (ledgeY) — объединение
+ * всех опасных фаз. По ним FloorPlanner считает гарантированную цену этажа, а
+ * test/audit_passability.js проверяет, что rects() из этой зоны не выходят. */
+const TRAP_SPANS = {
+  laser:   { y1: -161, y2: -139 },   // beamY ± 11
+  tesla:   { y1: -163, y2: -137 },   // arcY ± 13
+  spikes:  { y1: -74,  y2: -4 },     // от остриёв выдвинутых шипов (imgYOut − 58) до пола
+  crusher: { y1: -160, y2: -43 },    // удар не выше ledgeY − 160, плита ложится до yDown + 44
+  saw:     { y1: -171, y2: -67 }     // railY − 66 … railY + 38
+};
