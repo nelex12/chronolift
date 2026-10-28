@@ -395,6 +395,21 @@ class GameScene extends Phaser.Scene {
         g.lineStyle(1.5, danger ? 0xff3b3b : 0xffc93c, danger ? 0.55 : 0.25);
         g.strokeRect(r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1);
       }
+      // жёлтая зона-предупреждение: за WARN_MS до включения ловушки мигает там, где станет красной
+      // (3 вспышки, к концу ярче). Тайминги ловушек не меняются — только подсказка
+      if (!tr.dangerous && tr.msToDanger) {
+        const ms = tr.msToDanger();
+        if (ms > 0 && ms <= GameScene.WARN_MS) {
+          const k = 1 - ms / GameScene.WARN_MS;
+          const blink = 0.5 - 0.5 * Math.cos(k * Math.PI * 2 * 3);
+          for (const r of tr.warnRects()) {
+            g.fillStyle(0xffc93c, 0.05 + (0.10 + 0.08 * k) * blink);
+            g.fillRect(r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1);
+            g.lineStyle(1.5, 0xffc93c, 0.25 + 0.45 * blink);
+            g.strokeRect(r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1);
+          }
+        }
+      }
     }
   }
 
@@ -524,3 +539,6 @@ class GameScene extends Phaser.Scene {
     });
   }
 }
+
+// за сколько мс до включения ловушки мигает жёлтая зона-предупреждение (drawHitboxes)
+GameScene.WARN_MS = 1000;

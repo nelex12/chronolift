@@ -42,6 +42,13 @@ class LaserTrap {
     if (!this.dangerous) return [];
     return [{ x1: this.beamX1, x2: this.beamX2, y1: this.beamY - 11, y2: this.beamY + 11 }];
   }
+  /* сколько мс до включения луча (для жёлтой зоны-предупреждения) и где он будет */
+  msToDanger() {
+    if (this.phase === 'off') return this.durOff - this.t + this.durTele;
+    if (this.phase === 'tele') return this.durTele - this.t;
+    return 0;
+  }
+  warnRects() { return [{ x1: this.beamX1, x2: this.beamX2, y1: this.beamY - 11, y2: this.beamY + 11 }]; }
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
   disarm() { this.phase = 'off'; this.t = 0; this.beam.setAlpha(0); this.glow.setAlpha(0); this.dangerous = false; }
   destroy() { this.d.destroy(); this.beam.destroy(); this.glow.destroy(); }
@@ -83,7 +90,7 @@ class SpikesTrap {
     this.phase = 'hidden';
     this.durHidden = prefab.durHidden / diff; this.durWarn = prefab.durWarn; this.durOut = prefab.durOut / diff;
     this.base = scene.add.rectangle(240, ledgeY - 4, 460, 12, 0x2b3442).setDepth(4);
-    this.img = scene.add.image(240, ledgeY + 34, 'trap_spikes').setScale(1.12).setDepth(6);
+    this.img = scene.add.image(240, ledgeY + 34, 'trap_spikes').setScale(1.12).setDepth(6).setAlpha(0.35);
     this.imgYOut = ledgeY - 16; this.imgYIn = ledgeY + 34;
     this.dangerous = false;
     this.hadFreezeWhileDanger = false;
@@ -103,7 +110,9 @@ class SpikesTrap {
       this.img.setY(Phaser.Math.Linear(this.imgYIn, this.imgYOut, k)).setAlpha(1);
     } else {
       const k = Math.max(0, 1 - this.t / 150);
-      this.img.setY(Phaser.Math.Linear(this.imgYIn, this.imgYOut, k)).setAlpha(1);
+      // спрятанные шипы всё равно торчат над полом (ход всего 50 px) — делаем их полупрозрачными,
+      // чтобы было видно, что сейчас они не опасны
+      this.img.setY(Phaser.Math.Linear(this.imgYIn, this.imgYOut, k)).setAlpha(0.35 + 0.65 * k);
     }
     this.dangerous = (this.phase === 'out');
   }
@@ -113,6 +122,12 @@ class SpikesTrap {
     // Раньше зона была на 31 px выше остриёв и в полтора раза шире: смерть без касания
     return [{ x1: 116, x2: 364, y1: this.img.y - 58, y2: this.ledgeY - 4 }];
   }
+  msToDanger() {
+    if (this.phase === 'hidden') return this.durHidden - this.t + this.durWarn;
+    if (this.phase === 'warn') return this.durWarn - this.t;
+    return 0;
+  }
+  warnRects() { return [{ x1: 116, x2: 364, y1: this.imgYOut - 58, y2: this.ledgeY - 4 }]; }
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
   disarm() { this.phase = 'hidden'; this.t = 0; this.dangerous = false; this.img.setY(this.imgYIn); }
   destroy() { this.img.destroy(); this.base.destroy(); }
@@ -126,12 +141,16 @@ class CrusherTrap {
     this.scene = scene; this.ledgeY = ledgeY;
     this.type = 'crusher';
     this.pxPerWorld = 159;                 // при scale 1.1 обеих спрайтов
-    this.frame = scene.add.image(240, ledgeY - 1.675 * this.pxPerWorld, 'trap_crusher_frame')
-      .setScale(1.1).setDepth(5);
-    this.press = scene.add.image(240, ledgeY - 2.05 * this.pxPerWorld, 'trap_crusher_press')
+    // Плита ходит внутри рамы: поднятая висит под поршнем, при ударе ложится на нижнюю опору.
+    // Раньше рама стояла на 126 px выше: плита пробивала опору и ложилась под рамой.
+    // Положение плиты при ударе (yDown) не менялось — баланс тот же.
+    // Спрайт рамы (256 px, scale 1.1): низ поршня — строка 72, верх опоры — строка 216
+    this.yDown = ledgeY - 0.55 * this.pxPerWorld;           // низ плиты = ledgeY − 43.5
+    this.frame = scene.add.image(240, this.yDown + 44 - 96.8, 'trap_crusher_frame')
+      .setScale(1.1).setDepth(5);                            // верх опоры = низ плиты при ударе
+    this.yUp = this.frame.y - 61.6 + 44;                     // верх плиты = низ поршня
+    this.press = scene.add.image(240, this.yUp, 'trap_crusher_press')
       .setScale(1.1).setDepth(6);
-    this.yUp = ledgeY - 2.05 * this.pxPerWorld;
-    this.yDown = ledgeY - 0.55 * this.pxPerWorld;
     this.phase = 'up'; this.t = 0;
     this.durUp = prefab.durUp / diff; this.durWarn = prefab.durWarn;
     this.slamTime = prefab.slamTime; this.durHold = prefab.durHold / diff; this.durRise = prefab.durRise;
@@ -176,6 +195,14 @@ class CrusherTrap {
     if (y2 <= y1) return [];
     return [{ x1: 118, x2: 362, y1: y1, y2: y2 }];
   }
+  /* до удара; после подъёма — снова через полный цикл (up + warn) */
+  msToDanger() {
+    if (this.phase === 'up') return this.durUp - this.t + this.durWarn;
+    if (this.phase === 'warn') return this.durWarn - this.t;
+    if (this.phase === 'rise') return this.durRise - this.t + this.durUp + this.durWarn;
+    return 0;
+  }
+  warnRects() { return [{ x1: 118, x2: 362, y1: this.yDown - 44, y2: this.yDown + 44 }]; }  // куда ляжет плита
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
   disarm() { this.phase = 'up'; this.t = 0; this.press.y = this.yUp; this.dangerous = false; }
   destroy() { this.frame.destroy(); this.press.destroy(); }
@@ -244,6 +271,12 @@ class TeslaTrap {
     if (!this.dangerous) return [];
     return [{ x1: this.arcX1, x2: this.arcX2, y1: this.arcY - 13, y2: this.arcY + 13 }];
   }
+  msToDanger() {
+    if (this.phase === 'idle') return this.durIdle - this.t + this.durCharge;
+    if (this.phase === 'charge') return this.durCharge - this.t;
+    return 0;
+  }
+  warnRects() { return [{ x1: this.arcX1, x2: this.arcX2, y1: this.arcY - 13, y2: this.arcY + 13 }]; }
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
   disarm() { this.phase = 'idle'; this.t = 0; this.dangerous = false; this.arc.clear(); this.glow.setAlpha(0); }
   destroy() { this.img.destroy(); this.glow.destroy(); this.arc.destroy(); }
