@@ -81,9 +81,9 @@ async function main() {
   check('autotest finished', /"status":"TEST_DONE"/.test(testlog || ''), String(testlog || '').slice(0, 140));
 
   // добиваем забег, чтобы сработал gameOver() (счётчик runs + saveNow). Если автопилот ни разу
-  // не умер, возрождение не потрачено и die() в автотесте возродил бы — тогда тест был нестабилен
+  // не умер, возрождения не было: засчитываем его (как сделал бы автопилот) и завершаем забег
   await evaluate(`(function(){ var gs = window.__GAME.scene.getScene('Game');
-    if (gs && !gs.dead) { gs.reviveUsed = true; gs.invincible = 0; gs.die('test_end'); } return true; })()`);
+    if (gs && !gs.dead) { if (!gs.reviveUsed) gs.revive(); gs.invincible = 0; gs.die('test_end'); } return true; })()`);
   await sleep(2500);
 
   const m1 = JSON.parse(await evaluate(`(function(){

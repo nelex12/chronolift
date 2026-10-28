@@ -9,9 +9,12 @@ class LaserTrap {
     this.scene = scene; this.ledgeY = ledgeY;
     this.type = 'laser';
     this.beamY = ledgeY - 150;
-    this.d = scene.add.image(240, ledgeY + 6, 'trap_laser').setScale(1.25).setDepth(5);
-    this.glow = scene.add.rectangle(240, this.beamY, 400, 22, 0xff3b3b, 0).setDepth(6);
-    this.beam = scene.add.rectangle(240, this.beamY, 396, 9, 0xff5b5b, 0).setDepth(7);
+    // излучатели спрайта (строка 125 из 256, scale 1.25) — на высоте луча; раньше спрайт стоял
+    // на полу этажа, а опасный луч проходил на 150 px выше, в пустоте. Луч — между излучателями
+    this.d = scene.add.image(240, this.beamY + 3, 'trap_laser').setScale(1.25).setDepth(5);
+    this.beamX1 = 132; this.beamX2 = 346;
+    this.glow = scene.add.rectangle(239, this.beamY, 218, 22, 0xff3b3b, 0).setDepth(6);
+    this.beam = scene.add.rectangle(239, this.beamY, 214, 9, 0xff5b5b, 0).setDepth(7);
     this.phase = 'off'; this.t = 0;
     this.durOff = prefab.durOff / diff; this.durTele = prefab.durTele; this.durOn = prefab.durOn / diff;
     this.dangerous = false;
@@ -37,7 +40,7 @@ class LaserTrap {
   }
   rects() {
     if (!this.dangerous) return [];
-    return [{ x1: 42, x2: 438, y1: this.beamY - 11, y2: this.beamY + 11 }];
+    return [{ x1: this.beamX1, x2: this.beamX2, y1: this.beamY - 11, y2: this.beamY + 11 }];
   }
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
   disarm() { this.phase = 'off'; this.t = 0; this.beam.setAlpha(0); this.glow.setAlpha(0); this.dangerous = false; }
@@ -65,7 +68,8 @@ class SawTrap {
     this.img.setX(this.x);
     this.img.rotation -= 0.12;
   }
-  rects() { return [{ x1: this.x - 52, x2: this.x + 52, y1: this.railY - 52, y2: this.railY + 52 }]; }
+  // центр диска на спрайте выше центра картинки (ступица — строка 109 из 256, scale 0.72): −14 px
+  rects() { return [{ x1: this.x - 52, x2: this.x + 52, y1: this.railY - 66, y2: this.railY + 38 }]; }
   onFrozen() { this.hadFreezeWhileDanger = true; }
   disarm() {}
   destroy() { this.img.destroy(); this.rail.destroy(); }
@@ -105,7 +109,9 @@ class SpikesTrap {
   }
   rects() {
     if (!this.dangerous) return [];
-    return [{ x1: 55, x2: 425, y1: this.ledgeY - 105, y2: this.ledgeY - 4 }];
+    // от остриёв (верх спрайта — строка 76 из 256, scale 1.12: img.y − 58) до пола, по ширине шипов.
+    // Раньше зона была на 31 px выше остриёв и в полтора раза шире: смерть без касания
+    return [{ x1: 116, x2: 364, y1: this.img.y - 58, y2: this.ledgeY - 4 }];
   }
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
   disarm() { this.phase = 'hidden'; this.t = 0; this.dangerous = false; this.img.setY(this.imgYIn); }
@@ -162,7 +168,13 @@ class CrusherTrap {
   }
   rects() {
     if (!this.dangerous) return [];
-    return [{ x1: 110, x2: 370, y1: this.ledgeY - 160, y2: this.ledgeY - 8 }];
+    // по самой плите пресса (строки 88–168 из 256, scale 1.1: ±44 px от центра), и во время удара тоже.
+    // Раньше зона доходила до ledgeY − 8 — на 35 px ниже плиты, смерть без касания.
+    // Верх зоны не выше ledgeY − 160, как в исходном балансе: лифт проходит сквозь раму, а плита
+    // пролетает верх рамы за доли удара (120 мс) — иначе удар убивал почти проехавшего пресс игрока
+    const y1 = Math.max(this.press.y - 44, this.ledgeY - 160), y2 = this.press.y + 44;
+    if (y2 <= y1) return [];
+    return [{ x1: 118, x2: 362, y1: y1, y2: y2 }];
   }
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
   disarm() { this.phase = 'up'; this.t = 0; this.press.y = this.yUp; this.dangerous = false; }
@@ -175,9 +187,11 @@ class TeslaTrap {
     this.scene = scene; this.ledgeY = ledgeY;
     this.type = 'tesla';
     this.arcY = ledgeY - 150;
-    this.img = scene.add.image(240, ledgeY - 0.97 * 96, 'trap_tesla')
-      .setScale(0.45).setDepth(5);
-    this.glow = scene.add.rectangle(240, this.arcY, 400, 26, 0xb26bff, 0).setDepth(6);
+    // шары-контакты спрайта (центры x 44 и 213, y 67 из 256, scale 1) — на высоте разряда, низ — у пола.
+    // Раньше катушки были уменьшены до 0.45 в центре, а разряд шёл через всю шахту выше контактов
+    this.img = scene.add.image(240, this.arcY + 61, 'trap_tesla').setDepth(5);
+    this.arcX1 = 156; this.arcX2 = 325;
+    this.glow = scene.add.rectangle(240, this.arcY, this.arcX2 - this.arcX1, 26, 0xb26bff, 0).setDepth(6);
     this.arc = scene.add.graphics().setDepth(7);
     this.phase = 'idle'; this.t = 0;
     this.durIdle = prefab.durIdle / diff; this.durCharge = prefab.durCharge; this.durZap = prefab.durZap / diff;
@@ -213,12 +227,13 @@ class TeslaTrap {
     const g = this.arc;
     g.clear();
     g.lineStyle(3, 0xd9baff, 0.95);
-    const segs = 9;
-    let px = 40, py = this.arcY;
+    const segs = 6;
+    const w = this.arcX2 - this.arcX1;
+    let px = this.arcX1, py = this.arcY;
     g.beginPath();
     g.moveTo(px, py);
     for (let i = 1; i <= segs; i++) {
-      const nx = 40 + (400 / segs) * i;
+      const nx = this.arcX1 + (w / segs) * i;
       const ny = this.arcY + (i === segs ? 0 : (Math.random() - 0.5) * 26);
       g.lineTo(nx, ny);
       px = nx; py = ny;
@@ -227,7 +242,7 @@ class TeslaTrap {
   }
   rects() {
     if (!this.dangerous) return [];
-    return [{ x1: 42, x2: 438, y1: this.arcY - 13, y2: this.arcY + 13 }];
+    return [{ x1: this.arcX1, x2: this.arcX2, y1: this.arcY - 13, y2: this.arcY + 13 }];
   }
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
   disarm() { this.phase = 'idle'; this.t = 0; this.dangerous = false; this.arc.clear(); this.glow.setAlpha(0); }
