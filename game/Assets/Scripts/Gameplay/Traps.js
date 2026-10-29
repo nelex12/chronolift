@@ -1,8 +1,23 @@
 /* ХРОНОЛИФТ — Gameplay/Traps.js
  * Ловушки шахты. Параметры берутся из Assets/Prefabs/traps.json (prefab-конфиги),
  * скорость циклов масштабируется сложностью этажа.
+ * Опасность показывают сами ловушки, без рамок: жёлтое — скоро ударит, красное — опасно сейчас
+ * (рамки зон остались в настройках: «Зоны ловушек», GameScene.drawZones).
  */
 'use strict';
+
+// за сколько мс до включения ловушки начинается предупреждение (вспышки ловушки + звук Sfx.warn)
+const TRAP_WARN_MS = 1000;
+
+/* доля пройденного предупреждения 0..1; -1 — ловушка сейчас не готовится к удару */
+function trapWarnK(tr) {
+  if (tr.dangerous || !tr.msToDanger) return -1;
+  const ms = tr.msToDanger();
+  return (ms > 0 && ms <= TRAP_WARN_MS) ? 1 - ms / TRAP_WARN_MS : -1;
+}
+
+/* три вспышки за предупреждение; пики при k = 1/6, 1/2, 5/6 — в такт сигналам (GameScene.updateWarnAudio) */
+function trapBlink(k) { return 0.5 - 0.5 * Math.cos(k * Math.PI * 6); }
 
 class LaserTrap {
   constructor(scene, ledgeY, diff, prefab) {
@@ -13,8 +28,11 @@ class LaserTrap {
     // на полу этажа, а опасный луч проходил на 150 px выше, в пустоте. Луч — между излучателями
     this.d = scene.add.image(240, this.beamY + 3, 'trap_laser').setScale(1.25).setDepth(5);
     this.beamX1 = 132; this.beamX2 = 346;
-    this.glow = scene.add.rectangle(239, this.beamY, 218, 22, 0xff3b3b, 0).setDepth(6);
-    this.beam = scene.add.rectangle(239, this.beamY, 214, 9, 0xff5b5b, 0).setDepth(7);
+    // последний аргумент rectangle — непрозрачность заливки: раньше там стоял 0, и луч не был виден
+    // никогда (опасность показывала только рамка). Заливка полная, видимость — через setAlpha
+    this.glow = scene.add.rectangle(239, this.beamY, 218, 22, 0xff3b3b, 1).setDepth(6).setAlpha(0);
+    this.beam = scene.add.rectangle(239, this.beamY, 214, 9, 0xff5b5b, 1).setDepth(7).setAlpha(0);
+    this.aim = scene.add.graphics().setDepth(7);   // прицельный луч перед выстрелом
     this.phase = 'off'; this.t = 0;
     this.durOff = prefab.durOff / diff; this.durTele = prefab.durTele; this.durOn = prefab.durOn / diff;
     this.dangerous = false;
@@ -26,17 +44,26 @@ class LaserTrap {
     if (this.phase === 'off' && this.t > this.durOff) { this.phase = 'tele'; this.t = 0; }
     else if (this.phase === 'tele' && this.t > this.durTele) { this.phase = 'on'; this.t = 0; this.scene.trapTone(this, 980, 0.1, 'square', 0.05); }
     else if (this.phase === 'on' && this.t > this.durOn) { this.phase = 'off'; this.t = 0; }
+    this.dangerous = (this.phase === 'on');
     const tm = this.scene.time.now * 0.02;
-    if (this.phase === 'tele') {
-      const a = 0.25 + 0.2 * Math.sin(tm);
-      this.beam.setAlpha(a); this.glow.setAlpha(a * 0.5); this.beam.height = 5;
-    } else if (this.phase === 'on') {
+    this.aim.clear();
+    if (this.phase === 'on') {
       const p = 0.85 + 0.15 * Math.sin(tm * 1.7);
-      this.beam.setAlpha(p); this.glow.setAlpha(0.45 * p); this.beam.height = 9;
+      this.beam.setAlpha(p); this.glow.setAlpha(0.45 * p);
     } else {
       this.beam.setAlpha(0); this.glow.setAlpha(0);
+      const k = trapWarnK(this);
+      if (k >= 0) {
+        // прицельный луч растёт от излучателей к центру и смыкается в момент выстрела
+        const b = trapBlink(k), len = (this.beamX2 - this.beamX1) / 2 * k;
+        this.aim.lineStyle(2, 0xffc93c, 0.35 + 0.5 * b);
+        this.aim.lineBetween(this.beamX1, this.beamY, this.beamX1 + len, this.beamY);
+        this.aim.lineBetween(this.beamX2 - len, this.beamY, this.beamX2, this.beamY);
+        this.aim.fillStyle(0xffc93c, 0.4 + 0.5 * b);
+        this.aim.fillCircle(this.beamX1, this.beamY, 3 + 4 * k);
+        this.aim.fillCircle(this.beamX2, this.beamY, 3 + 4 * k);
+      }
     }
-    this.dangerous = (this.phase === 'on');
   }
   rects() {
     if (!this.dangerous) return [];
@@ -50,8 +77,8 @@ class LaserTrap {
   }
   warnRects() { return [{ x1: this.beamX1, x2: this.beamX2, y1: this.beamY - 11, y2: this.beamY + 11 }]; }
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
-  disarm() { this.phase = 'off'; this.t = 0; this.beam.setAlpha(0); this.glow.setAlpha(0); this.dangerous = false; }
-  destroy() { this.d.destroy(); this.beam.destroy(); this.glow.destroy(); }
+  disarm() { this.phase = 'off'; this.t = 0; this.beam.setAlpha(0); this.glow.setAlpha(0); this.aim.clear(); this.dangerous = false; }
+  destroy() { this.d.destroy(); this.beam.destroy(); this.glow.destroy(); this.aim.destroy(); }
 }
 
 class SawTrap {
@@ -77,6 +104,8 @@ class SawTrap {
   }
   // центр диска на спрайте выше центра картинки (ступица — строка 109 из 256, scale 0.72): −14 px
   rects() { return [{ x1: this.x - 52, x2: this.x + 52, y1: this.railY - 66, y2: this.railY + 38 }]; }
+  // столкновение — по кругу диска (вписан в rects(): планировщик и тесты считают по квадрату, с запасом)
+  hitShapes() { return [{ cx: this.x, cy: this.railY - 14, r: 52 }]; }
   onFrozen() { this.hadFreezeWhileDanger = true; }
   disarm() {}
   destroy() { this.img.destroy(); this.rail.destroy(); }
@@ -90,7 +119,7 @@ class SpikesTrap {
     this.phase = 'hidden';
     this.durHidden = prefab.durHidden / diff; this.durWarn = prefab.durWarn; this.durOut = prefab.durOut / diff;
     this.base = scene.add.rectangle(240, ledgeY - 4, 460, 12, 0x2b3442).setDepth(4);
-    this.img = scene.add.image(240, ledgeY + 34, 'trap_spikes').setScale(1.12).setDepth(6).setAlpha(0.35);
+    this.img = scene.add.image(240, ledgeY + 34, 'trap_spikes').setScale(1.12).setDepth(6).setAlpha(SpikesTrap.GHOST);
     this.imgYOut = ledgeY - 16; this.imgYIn = ledgeY + 34;
     this.dangerous = false;
     this.hadFreezeWhileDanger = false;
@@ -101,20 +130,23 @@ class SpikesTrap {
     if (this.phase === 'hidden' && this.t > this.durHidden) { this.phase = 'warn'; this.t = 0; }
     else if (this.phase === 'warn' && this.t > this.durWarn) { this.phase = 'out'; this.t = 0; this.scene.trapTone(this, 140, 0.15, 'square', 0.07, 90); }
     else if (this.phase === 'out' && this.t > this.durOut) { this.phase = 'hidden'; this.t = 0; }
+    this.dangerous = (this.phase === 'out');
+    // Спрятанные шипы всё равно торчат над полом (ход всего 50 px), поэтому неопасные — призрачные
+    // (GHOST), а за секунду до удара мигают и становятся плотными. Выдвинутые — полностью непрозрачные
+    const wk = trapWarnK(this);
+    const warnA = wk < 0 ? 0 : wk * (0.55 + 0.45 * trapBlink(wk));
+    const G = SpikesTrap.GHOST;
     if (this.phase === 'warn') {
       const k = this.t / this.durWarn;
       this.img.setY(Phaser.Math.Linear(this.imgYIn, this.imgYOut, Math.min(1, k * 0.6)));
-      this.img.setAlpha(0.6 + 0.4 * Math.sin(this.scene.time.now * 0.03));
+      this.img.setAlpha(G + (1 - G) * warnA);
     } else if (this.phase === 'out') {
       const k = Math.min(1, this.t / 120);
       this.img.setY(Phaser.Math.Linear(this.imgYIn, this.imgYOut, k)).setAlpha(1);
     } else {
-      const k = Math.max(0, 1 - this.t / 150);
-      // спрятанные шипы всё равно торчат над полом (ход всего 50 px) — делаем их полупрозрачными,
-      // чтобы было видно, что сейчас они не опасны
-      this.img.setY(Phaser.Math.Linear(this.imgYIn, this.imgYOut, k)).setAlpha(0.35 + 0.65 * k);
+      const k = Math.max(0, 1 - this.t / 150);   // втягиваются и гаснут за 150 мс
+      this.img.setY(Phaser.Math.Linear(this.imgYIn, this.imgYOut, k)).setAlpha(G + (1 - G) * Math.max(k, warnA));
     }
-    this.dangerous = (this.phase === 'out');
   }
   rects() {
     if (!this.dangerous) return [];
@@ -132,6 +164,8 @@ class SpikesTrap {
   disarm() { this.phase = 'hidden'; this.t = 0; this.dangerous = false; this.img.setY(this.imgYIn); }
   destroy() { this.img.destroy(); this.base.destroy(); }
 }
+
+SpikesTrap.GHOST = 0.18;   // непрозрачность неопасных шипов
 
 const TRAP_CLASSES = { laser: LaserTrap, saw: SawTrap, spikes: SpikesTrap };
 
@@ -151,6 +185,7 @@ class CrusherTrap {
     this.yUp = this.frame.y - 61.6 + 44;                     // верх плиты = низ поршня
     this.press = scene.add.image(240, this.yUp, 'trap_crusher_press')
       .setScale(1.1).setDepth(6);
+    this.mark = scene.add.graphics().setDepth(5);   // тень на опоре там, куда ляжет плита
     this.phase = 'up'; this.t = 0;
     this.durUp = prefab.durUp / diff; this.durWarn = prefab.durWarn;
     this.slamTime = prefab.slamTime; this.durHold = prefab.durHold / diff; this.durRise = prefab.durRise;
@@ -184,6 +219,18 @@ class CrusherTrap {
       this.press.x = 240;
     }
     this.dangerous = (this.phase === 'slam' || this.phase === 'hold');
+    // за секунду до удара: на опоре сгущается тень и мигает жёлтая кромка (плита ещё и дрожит);
+    // в ударе плита красноватая
+    const k = trapWarnK(this);
+    this.mark.clear();
+    if (k >= 0) {
+      const b = trapBlink(k), yb = this.yDown + 44;
+      this.mark.fillStyle(0x000000, 0.15 + 0.35 * k);
+      this.mark.fillRect(126, yb - 10, 228, 10);
+      this.mark.lineStyle(3, 0xffc93c, 0.3 + 0.7 * b);
+      this.mark.lineBetween(126, yb - 1, 354, yb - 1);
+    }
+    if (this.dangerous) this.press.setTint(0xffb4a8); else this.press.clearTint();
   }
   rects() {
     if (!this.dangerous) return [];
@@ -204,8 +251,8 @@ class CrusherTrap {
   }
   warnRects() { return [{ x1: 118, x2: 362, y1: this.yDown - 44, y2: this.yDown + 44 }]; }  // куда ляжет плита
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
-  disarm() { this.phase = 'up'; this.t = 0; this.press.y = this.yUp; this.dangerous = false; }
-  destroy() { this.frame.destroy(); this.press.destroy(); }
+  disarm() { this.phase = 'up'; this.t = 0; this.press.y = this.yUp; this.dangerous = false; this.mark.clear(); this.press.clearTint(); }
+  destroy() { this.frame.destroy(); this.press.destroy(); this.mark.destroy(); }
 }
 
 /* --- Тесла: заряжается и бьёт дугой через весь проём. --- */
@@ -218,8 +265,7 @@ class TeslaTrap {
     // Раньше катушки были уменьшены до 0.45 в центре, а разряд шёл через всю шахту выше контактов
     this.img = scene.add.image(240, this.arcY + 61, 'trap_tesla').setDepth(5);
     this.arcX1 = 156; this.arcX2 = 325;
-    this.glow = scene.add.rectangle(240, this.arcY, this.arcX2 - this.arcX1, 26, 0xb26bff, 0).setDepth(6);
-    this.arc = scene.add.graphics().setDepth(7);
+    this.arc = scene.add.graphics().setDepth(7);   // и зарядка (контакты, искры, пунктир), и сама дуга
     this.phase = 'idle'; this.t = 0;
     this.durIdle = prefab.durIdle / diff; this.durCharge = prefab.durCharge; this.durZap = prefab.durZap / diff;
     this.dangerous = false;
@@ -235,37 +281,49 @@ class TeslaTrap {
       this.phase = 'zap'; this.t = 0;
       this.scene.trapTone(this, 1600, 0.18, 'sawtooth', 0.08, 300);
     }
-    else if (this.phase === 'zap' && this.t > this.durZap) { this.phase = 'idle'; this.t = 0; this.arc.clear(); this.glow.setAlpha(0); }
-
-    if (this.phase === 'charge') {
-      const k = this.t / this.durCharge;
-      const pulse = 0.5 + 0.5 * Math.sin(this.arcT * 0.05);
-      this.img.setTint(pulse * k > 0.55 ? 0xd9baff : 0xffffff);
-      this.glow.setAlpha(0.08 + 0.12 * k * pulse);
-    } else if (this.phase === 'zap') {
-      this.glow.setAlpha(0.35 + 0.15 * Math.sin(this.arcT * 0.06));
-      this.drawArc();
-    } else {
-      this.img.clearTint();
-    }
+    else if (this.phase === 'zap' && this.t > this.durZap) { this.phase = 'idle'; this.t = 0; }
     this.dangerous = (this.phase === 'zap');
-  }
-  drawArc() {
-    const g = this.arc;
-    g.clear();
-    g.lineStyle(3, 0xd9baff, 0.95);
-    const segs = 6;
-    const w = this.arcX2 - this.arcX1;
-    let px = this.arcX1, py = this.arcY;
-    g.beginPath();
-    g.moveTo(px, py);
-    for (let i = 1; i <= segs; i++) {
-      const nx = this.arcX1 + (w / segs) * i;
-      const ny = this.arcY + (i === segs ? 0 : (Math.random() - 0.5) * 26);
-      g.lineTo(nx, ny);
-      px = nx; py = ny;
+
+    this.arc.clear();
+    if (this.phase === 'zap') {
+      this.img.setTint(0xd9baff);
+      this.drawArc();
+      return;
     }
-    g.strokePath();
+    const k = trapWarnK(this);
+    if (k >= 0) {
+      this.img.setTint(trapBlink(k) > 0.6 ? 0xd9baff : 0xffffff);
+      this.drawCharge(k);
+    } else this.img.clearTint();
+  }
+  /* зарядка: контакты разгораются, по линии будущей дуги — пунктир, навстречу друг другу бегут искры */
+  drawCharge(k) {
+    const g = this.arc, b = trapBlink(k), y = this.arcY;
+    g.fillStyle(0xd9baff, 0.2 + 0.25 * k + 0.4 * b);
+    g.fillCircle(this.arcX1, y, 5 + 7 * k);
+    g.fillCircle(this.arcX2, y, 5 + 7 * k);
+    g.lineStyle(2, 0xd9baff, 0.15 + 0.4 * b);
+    for (let x = this.arcX1 + 14; x < this.arcX2 - 14; x += 14) g.lineBetween(x, y, Math.min(x + 6, this.arcX2 - 14), y);
+    g.lineStyle(2, 0xf3e8ff, 0.9);
+    for (const [x0, dir] of [[this.arcX1, 1], [this.arcX2, -1]]) {
+      if (Math.random() > 0.35 + 0.6 * k) continue;
+      let x = x0;
+      g.beginPath(); g.moveTo(x, y);
+      for (let i = 0, n = 2 + Math.floor(3 * k); i < n; i++) { x += dir * (6 + 10 * k); g.lineTo(x, y + (Math.random() - 0.5) * 14); }
+      g.strokePath();
+    }
+  }
+  /* дуга: широкое свечение + яркая жила по одной ломаной (размах ±13 — как у зоны поражения) */
+  drawArc() {
+    const g = this.arc, segs = 6, w = this.arcX2 - this.arcX1;
+    const pts = [[this.arcX1, this.arcY]];
+    for (let i = 1; i <= segs; i++) pts.push([this.arcX1 + (w / segs) * i, this.arcY + (i === segs ? 0 : (Math.random() - 0.5) * 26)]);
+    for (const [width, color, alpha] of [[12, 0xb26bff, 0.25], [6, 0xd9baff, 0.45], [3, 0xffffff, 0.95]]) {
+      g.lineStyle(width, color, alpha);
+      g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+      g.strokePath();
+    }
   }
   rects() {
     if (!this.dangerous) return [];
@@ -278,8 +336,8 @@ class TeslaTrap {
   }
   warnRects() { return [{ x1: this.arcX1, x2: this.arcX2, y1: this.arcY - 13, y2: this.arcY + 13 }]; }
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
-  disarm() { this.phase = 'idle'; this.t = 0; this.dangerous = false; this.arc.clear(); this.glow.setAlpha(0); }
-  destroy() { this.img.destroy(); this.glow.destroy(); this.arc.destroy(); }
+  disarm() { this.phase = 'idle'; this.t = 0; this.dangerous = false; this.arc.clear(); this.img.clearTint(); }
+  destroy() { this.img.destroy(); this.arc.destroy(); }
 }
 
 TRAP_CLASSES.crusher = CrusherTrap;

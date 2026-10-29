@@ -42,11 +42,14 @@ class GameScene extends Phaser.Scene {
     this.hazardGlow = this.add.rectangle(240, 400, 480, 800, 0xff3b3b, 0)
       .setScrollFactor(0).setDepth(20);
 
-    this.player = this.add.image(240, 0, this.skin.sprite).setScale(0.54).setDepth(11);
-    // ховер-подсветка под персонажем (хроно-привод)
-    this.jetGlow = this.add.ellipse(240, 0, 70, 22, 0x57f2ff, 0.30).setDepth(10);
+    // персонаж стоит на лифте; коллайдер — по непрозрачным пикселям спрайта (buildPlayerMask)
+    this.playerMask = this.buildPlayerMask(this.skin.sprite);
+    this.player = this.add.image(240, 0, this.skin.sprite).setScale(this.playerMask.scale).setDepth(11);
+    this.lift = new LiftPlatform(this, 240, 0, 10);
+    // ховер-подсветка под лифтом (хроно-привод)
+    this.jetGlow = this.add.ellipse(240, 0, 70, 22, 0x57f2ff, 0.30).setDepth(9);
 
-    // визуализация хитбоксов: игрок (контур) и зоны поражения (заливка)
+    // рамки зон поражения — только если включены в настройках («Зоны ловушек», drawZones)
     this.hitGfx = this.add.graphics().setDepth(14);
 
     this.freezeOverlay = this.add.rectangle(240, 400, 480, 800, 0x2fd6ff, 0)
@@ -98,7 +101,8 @@ class GameScene extends Phaser.Scene {
 
   /* Рука-подсказка для обучения: пульсирует «ЗАЖМИ!», пока игрок не заморозил время */
   buildTutorialHand() {
-    this.hand = this.add.container(240, 690).setScrollFactor(0).setDepth(31).setVisible(false);
+    // ниже часов лифта (низ циферблата — 642 на экране), круг пульсирует до радиуса 58
+    this.hand = this.add.container(240, 722).setScrollFactor(0).setDepth(31).setVisible(false);
     const circle = this.add.circle(0, 0, 46, 0x2fd6a3, 0.25).setStrokeStyle(3, 0x2fd6a3, 0.9);
     const label = this.add.text(0, 0, 'ЗАЖМИ!', {
       fontFamily: 'Arial', fontSize: '22px', fontStyle: 'bold', color: '#eaf6ff'
@@ -339,8 +343,72 @@ class GameScene extends Phaser.Scene {
     }
   }
 
+  /* Коллайдер игрока по спрайту: для каждой строки силуэта (1 px мира) — левый и правый край
+   * непрозрачных пикселей. Спрайт масштабируется так, чтобы силуэт был ровно PLAN.playerH в высоту
+   * и стоял ногами на roofY + 2: на этот рост рассчитана гарантия проходимости (FloorPlanner).
+   * Новый спрайт персонажа подстроится сам — достаточно прозрачного фона вокруг фигуры */
+  buildPlayerMask(key) {
+    const img = this.textures.get(key).getSourceImage();
+    const w = img.width, h = img.height;
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const c2 = cv.getContext('2d');
+    c2.drawImage(img, 0, 0);
+    const a = c2.getImageData(0, 0, w, h).data;
+    const texRows = [];
+    let top = -1, bottom = -1;
+    for (let y = 0; y < h; y++) {
+      let mn = -1, mx = -1;
+      for (let x = 0; x < w; x++) if (a[(y * w + x) * 4 + 3] > 128) { if (mn < 0) mn = x; mx = x; }
+      texRows.push(mn < 0 ? null : [mn, mx + 1]);
+      if (mn >= 0) { if (top < 0) top = y; bottom = y; }
+    }
+    const H = PLAN.playerH, scale = H / (bottom - top + 1);
+    const rows = [];
+    let minX = Infinity, maxX = -Infinity;
+    for (let wy = 0; wy < H; wy++) {                        // строка мира -> строки текстуры под ней
+      let mn = Infinity, mx = -Infinity;
+      const t1 = Math.min(bottom, top + Math.floor((wy + 1) / scale));
+      for (let ty = top + Math.floor(wy / scale); ty <= t1; ty++) {
+        const r = texRows[ty];
+        if (r) { mn = Math.min(mn, r[0]); mx = Math.max(mx, r[1]); }
+      }
+      if (mn > mx) { rows.push(null); continue; }
+      const row = [(mn - w / 2) * scale, (mx - w / 2) * scale];   // от центра спрайта
+      rows.push(row);
+      minX = Math.min(minX, row[0]); maxX = Math.max(maxX, row[1]);
+    }
+    // центр спрайта относительно roofY: верх силуэта на roofY + 2 − H
+    const offY = 2 - H - (top - h / 2) * scale;
+    return { scale, rows, minX, maxX, offY };
+  }
+
+  /* габарит силуэта (для автопилота и быстрой проверки) */
   playerRects() {
-    return [{ x1: 240 - 22, x2: 240 + 22, y1: this.roofY - 92, y2: this.roofY + 2 }];
+    const m = this.playerMask;
+    return [{ x1: 240 + m.minX, x2: 240 + m.maxX, y1: this.roofY + 2 - PLAN.playerH, y2: this.roofY + 2 }];
+  }
+
+  /* касается ли силуэт игрока фигуры ловушки: прямоугольника {x1,x2,y1,y2} или круга {cx,cy,r} */
+  playerHits(s, pr) {
+    const circle = s.r !== undefined;
+    const sy1 = circle ? s.cy - s.r : s.y1, sy2 = circle ? s.cy + s.r : s.y2;
+    const sx1 = circle ? s.cx - s.r : s.x1, sx2 = circle ? s.cx + s.r : s.x2;
+    if (!(pr.x1 < sx2 && pr.x2 > sx1 && pr.y1 < sy2 && pr.y2 > sy1)) return false;
+    const rows = this.playerMask.rows;
+    for (let i = Math.max(0, Math.floor(sy1 - pr.y1)); i < rows.length && pr.y1 + i < sy2; i++) {
+      const row = rows[i];
+      if (!row) continue;
+      let x1 = sx1, x2 = sx2;
+      if (circle) {
+        const dy = pr.y1 + i + 0.5 - s.cy, h2 = s.r * s.r - dy * dy;
+        if (h2 <= 0) continue;
+        const dx = Math.sqrt(h2);
+        x1 = s.cx - dx; x2 = s.cx + dx;
+      }
+      if (240 + row[0] < x2 && 240 + row[1] > x1) return true;
+    }
+    return false;
   }
 
   checkDanger() {
@@ -348,8 +416,8 @@ class GameScene extends Phaser.Scene {
     const pr = this.playerRects()[0];
     for (const tr of this.traps) {
       if (Math.abs(tr.ledgeY - this.roofY) > 320) continue;
-      for (const r of tr.rects()) {
-        if (pr.x1 < r.x2 && pr.x2 > r.x1 && pr.y1 < r.y2 && pr.y2 > r.y1) {
+      for (const s of (tr.hitShapes ? tr.hitShapes() : tr.rects())) {
+        if (this.playerHits(s, pr)) {
           this.die(tr.type);
           return;
         }
@@ -372,13 +440,15 @@ class GameScene extends Phaser.Scene {
   }
 
   updateVisuals(dtMs, time) {
-    this.player.setPosition(240, this.roofY - 46);
-    this.jetGlow.setPosition(240, this.roofY + 6);
+    this.player.setPosition(240, this.roofY + this.playerMask.offY);
+    this.lift.setPosition(240, this.roofY + 2);                     // ноги персонажа — на верху плиты
+    if (!this.frozen) this.lift.tick(dtMs);                         // часы лифта стоят вместе со временем
+    this.jetGlow.setPosition(240, this.roofY + 2 + LiftPlatform.BOTTOM + 4);
     this.jetGlow.setAlpha(0.20 + 0.12 * Math.sin(time * 0.008));
     this.cameras.main.setScroll(0, this.roofY - 600);
     this.bgFar.tilePositionY = (this.roofY - 600) * 0.35;
 
-    this.drawHitboxes();
+    this.drawZones();
 
     for (const c of this.coinObjs) {
       if (!c.taken) c.img.setScale(0.5 * (0.75 + 0.25 * Math.sin(time * 0.004 + c.phase)));
@@ -405,8 +475,6 @@ class GameScene extends Phaser.Scene {
     this.player.setAlpha(this.invincible > 0 ? (Math.sin(time * 0.03) > 0 ? 1 : 0.3) : 1);
   }
 
-  /* Честные хитбоксы: зона игрока — зелёный контур,
-   * зоны поражения ловушек — красная заливка (ярче, когда опасно). */
   /* Громкость звука ловушки по расстоянию до игрока: впереди — нарастает по мере приближения,
    * позади (уже проехал) — тише и быстрее затухает. 0 — не слышно (дальше ~1,5 этажа) */
   trapGain(tr) {
@@ -423,7 +491,7 @@ class GameScene extends Phaser.Scene {
     if (g > 0.03) this.sfx.tone(freq, dur, type, vol * g, slideTo);
   }
 
-  /* сигналы жёлтой зоны: три в такт вспышкам (drawHitboxes), каждый выше предыдущего,
+  /* сигналы жёлтой зоны: три в такт вспышкам ловушек (trapBlink в Traps.js), каждый выше предыдущего,
    * у каждой ловушки свой тембр (Sfx.warn), громкость — по расстоянию */
   updateWarnAudio() {
     for (const tr of this.traps) {
@@ -440,12 +508,12 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  drawHitboxes() {
+  /* рамки зон поражения — режим из настроек («Зоны ловушек», по умолчанию выключен).
+   * Без него опасность показывают сами ловушки (Traps.js) */
+  drawZones() {
     const g = this.hitGfx;
     g.clear();
-    const pr = this.playerRects()[0];
-    g.lineStyle(2, 0x2fd6a3, 0.85);
-    g.strokeRect(pr.x1, pr.y1, pr.x2 - pr.x1, pr.y2 - pr.y1);
+    if (!save.showZones) return;
     const pulse = 0.5 + 0.5 * Math.sin(this.runTime * 0.012);
     for (const tr of this.traps) {
       if (Math.abs(tr.ledgeY - this.roofY) > 420) continue;
@@ -611,5 +679,5 @@ class GameScene extends Phaser.Scene {
   }
 }
 
-// за сколько мс до включения ловушки мигает жёлтая зона-предупреждение (drawHitboxes)
-GameScene.WARN_MS = 1000;
+// за сколько мс до включения ловушки начинается предупреждение (Traps.js)
+GameScene.WARN_MS = TRAP_WARN_MS;

@@ -22,10 +22,11 @@ class MenuScene extends Phaser.Scene {
       fontFamily: 'Arial', fontSize: '17px', color: '#ffc93c'
     }).setOrigin(0.5);
 
-    // парящий герой (хроно-привод держит в воздухе)
-    this.heroSprite = this.add.image(240, 400, 'player_' + (save.selectedSkin || 'orange')).setScale(0.62).setDepth(5);
-    const halo = this.add.ellipse(240, 486, 110, 26, 0x57f2ff, 0.25).setDepth(4);
-    this.tweens.add({ targets: [this.heroSprite, halo], y: '+=14', duration: 1300, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    // герой на парящем лифте (хроно-привод держит в воздухе); часы лифта идут — update()
+    this.heroSprite = this.add.image(240, 385, 'player_' + (save.selectedSkin || 'orange')).setScale(0.62).setDepth(5);
+    this.lift = new LiftPlatform(this, 240, 452, 5);   // 452 — низ силуэта героя (строка 236 из 256, scale 0.62)
+    const halo = this.add.ellipse(240, 452 + LiftPlatform.BOTTOM + 4, 110, 26, 0x57f2ff, 0.25).setDepth(4);
+    this.tweens.add({ targets: [this.heroSprite, this.lift.c, halo], y: '+=14', duration: 1300, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     this.tweens.add({ targets: halo, alpha: 0.12, duration: 650, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
 
     // баланс монет — шапка
@@ -38,20 +39,21 @@ class MenuScene extends Phaser.Scene {
       fontSize: 30, color: 0x123a2e, accent: 0x2fd6a3,
       onClick: () => { AnalyticsService.track('menu_play', {}); this.scene.start('Game'); }
     });
-    makeButton(this, 130, 646, 250, 52, 'МИССИИ', {
+    // сетка 2×2: кнопки по 206 px с зазором 20 px между ними (раньше ширина 250 при шаге 220 — кнопки налезали)
+    makeButton(this, 127, 646, 206, 52, 'МИССИИ', {
       accent: 0xffc93c,
       onClick: () => { AnalyticsService.track('menu_missions', {}); this.scene.start('Missions'); }
     });
-    makeButton(this, 350, 646, 250, 52, 'СКИНЫ', { onClick: () => this.scene.start('Skins') });
-    makeButton(this, 130, 712, 250, 52, 'МАГАЗИН', { onClick: () => this.scene.start('Shop') });
-    makeButton(this, 350, 712, 250, 52, 'ДОСТИЖЕНИЯ', { onClick: () => this.scene.start('Achievements') });
+    makeButton(this, 353, 646, 206, 52, 'СКИНЫ', { onClick: () => this.scene.start('Skins') });
+    makeButton(this, 127, 712, 206, 52, 'МАГАЗИН', { onClick: () => this.scene.start('Shop') });
+    makeButton(this, 353, 712, 206, 52, 'ДОСТИЖЕНИЯ', { onClick: () => this.scene.start('Achievements') });
     makeButton(this, 240, 768, 220, 40, 'НАСТРОЙКИ', { fontSize: 17, onClick: () => this.scene.start('Settings') });
 
     // бейдж «есть невыбранные награды» на кнопке МИССИИ (soft CTA)
     const claimN = MissionService.claimableCount();
     if (claimN > 0) {
-      this.add.circle(252, 624, 13, 0xff3b3b, 1).setDepth(8);
-      this.add.text(252, 624, String(claimN), {
+      this.add.circle(226, 622, 13, 0xff3b3b, 1).setDepth(8);
+      this.add.text(226, 622, String(claimN), {
         fontFamily: 'Arial', fontSize: '15px', fontStyle: 'bold', color: '#fff'
       }).setOrigin(0.5).setDepth(9);
     }
@@ -102,6 +104,8 @@ class MenuScene extends Phaser.Scene {
     if (!save.seenWelcome) this.showWelcome();
     else this.maybeShowDaily();
   }
+
+  update(time, delta) { this.lift.tick(delta); }
 
   refreshAuthLabel() {
     this.authLabel.setText(YandexClient.isAuthorized()

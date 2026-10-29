@@ -22,7 +22,7 @@ class BootScene extends Phaser.Scene {
     const list = ['player_orange', 'player_mint', 'player_violet', 'player_gold',
       'trap_spikes', 'trap_saw', 'trap_laser', 'trap_tesla',
       'trap_crusher_frame', 'trap_crusher_press',
-      'coin', 'bg_wall_panel', 'bg_floor_ledge'];
+      'coin', 'bg_wall_panel', 'bg_floor_ledge', 'lift_platform'];
     for (const n of list) this.load.image(n, S + n + '.png');
     this.load.json('trap_prefabs', 'Assets/Prefabs/traps.json');
   }

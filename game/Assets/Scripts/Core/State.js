@@ -29,7 +29,8 @@ function defaultSave() {
     achievements: [],                           // id разблокированных достижений
     best: { score: 0, floors: 0 },
     sound: true,
-    music: true                                 // фоновая музыка (Core/Music.js), отдельно от звуков
+    music: true,                                // фоновая музыка (Core/Music.js), отдельно от звуков
+    showZones: false                            // рамки зон ловушек в забеге (GameScene.drawZones)
   };
 }
 
