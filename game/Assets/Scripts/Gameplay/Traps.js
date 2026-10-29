@@ -119,11 +119,31 @@ class SpikesTrap {
     this.phase = 'hidden';
     this.durHidden = prefab.durHidden / diff; this.durWarn = prefab.durWarn; this.durOut = prefab.durOut / diff;
     this.base = scene.add.rectangle(240, ledgeY - 4, 460, 12, 0x2b3442).setDepth(4);
-    this.img = scene.add.image(240, ledgeY + 34, 'trap_spikes').setScale(1.12).setDepth(6).setAlpha(SpikesTrap.GHOST);
-    this.imgYOut = ledgeY - 16; this.imgYIn = ledgeY + 34;
+    // Три слоя на месте выдвинутых шипов (imgYOut) и сами шипы:
+    //  - outline — красный контур (текстура-кромка из Boot.makeOutlineTexture), мигает перед ударом, горит в ударе;
+    //  - ghost — полупрозрачный «призрак»: в покое показывает, где ударят шипы;
+    //  - real — настоящие шипы: спрятаны в основании и выскакивают рывком на RISE px (больше высоты спрайта);
+    //  - plate — основание (низ того же спрайта), неподвижно. Шипы ниже его верха обрезаются (setCrop).
+    this.imgYOut = ledgeY - 16; this.imgYIn = this.imgYOut + SpikesTrap.RISE;
+    this.plateTop = this.imgYOut + (SpikesTrap.PLATE_ROW - 128) * 1.12;
+    const spikesOnly = (img) => img.setCrop(0, 0, img.frame.width, SpikesTrap.PLATE_ROW);
+    this.outline = spikesOnly(scene.add.image(240, this.imgYOut, 'trap_spikes_outline').setScale(1.12).setDepth(6.2)
+      .setAlpha(0));
+    this.ghost = spikesOnly(scene.add.image(240, this.imgYOut, 'trap_spikes').setScale(1.12).setDepth(5.5)
+      .setAlpha(SpikesTrap.GHOST));
+    this.img = scene.add.image(240, this.imgYIn, 'trap_spikes').setScale(1.12).setDepth(6);
+    this.plate = scene.add.image(240, this.imgYOut, 'trap_spikes').setScale(1.12).setDepth(6.5);
+    this.plate.setCrop(0, SpikesTrap.PLATE_ROW, this.plate.frame.width, this.plate.frame.height - SpikesTrap.PLATE_ROW);
+    this.placeReal(this.imgYIn);
     this.dangerous = false;
     this.hadFreezeWhileDanger = false;
     this.done = false;
+  }
+  /* настоящие шипы на высоте y; видна только часть выше основания */
+  placeReal(y) {
+    this.img.setY(y);
+    const rows = Math.max(0, Math.min(SpikesTrap.PLATE_ROW, 128 + (this.plateTop - y) / 1.12));
+    this.img.setCrop(0, 0, this.img.frame.width, rows);
   }
   update(dtMs) {
     this.t += dtMs;
@@ -131,28 +151,35 @@ class SpikesTrap {
     else if (this.phase === 'warn' && this.t > this.durWarn) { this.phase = 'out'; this.t = 0; this.scene.trapTone(this, 140, 0.15, 'square', 0.07, 90); }
     else if (this.phase === 'out' && this.t > this.durOut) { this.phase = 'hidden'; this.t = 0; }
     this.dangerous = (this.phase === 'out');
-    // Спрятанные шипы всё равно торчат над полом (ход всего 50 px), поэтому неопасные — призрачные
-    // (GHOST), а за секунду до удара мигают и становятся плотными. Выдвинутые — полностью непрозрачные
-    const wk = trapWarnK(this);
-    const warnA = wk < 0 ? 0 : wk * (0.55 + 0.45 * trapBlink(wk));
-    const G = SpikesTrap.GHOST;
-    if (this.phase === 'warn') {
-      const k = this.t / this.durWarn;
-      this.img.setY(Phaser.Math.Linear(this.imgYIn, this.imgYOut, Math.min(1, k * 0.6)));
-      this.img.setAlpha(G + (1 - G) * warnA);
-    } else if (this.phase === 'out') {
-      const k = Math.min(1, this.t / 120);
-      this.img.setY(Phaser.Math.Linear(this.imgYIn, this.imgYOut, k)).setAlpha(1);
-    } else {
-      const k = Math.max(0, 1 - this.t / 150);   // втягиваются и гаснут за 150 мс
-      this.img.setY(Phaser.Math.Linear(this.imgYIn, this.imgYOut, k)).setAlpha(G + (1 - G) * Math.max(k, warnA));
+    // покой: шипы спрятаны, на их месте призрак. За секунду до удара призрак мигает и уплотняется,
+    // контур мигает красным. Удар — рывок за DASH_MS, в ударе контур горит красным. Потом шипы
+    // уходят вниз за RETRACT_MS, и снова призрак. Без медленного подползания
+    const G = SpikesTrap.GHOST, wk = trapWarnK(this);
+    let ghostA = G, lineA = 0;
+    if (wk >= 0) {
+      const b = trapBlink(wk);
+      ghostA = G + (0.6 - G) * wk * (0.5 + 0.5 * b);
+      lineA = (0.25 + 0.75 * wk) * b;
     }
+    if (this.phase === 'out') {
+      const k = Math.min(1, this.t / SpikesTrap.DASH_MS);
+      this.placeReal(Phaser.Math.Linear(this.imgYIn, this.imgYOut, 1 - (1 - k) * (1 - k)));   // резко, с торможением в конце
+      ghostA = 0; lineA = 0.85;
+    } else if (this.phase === 'hidden' && this.t < SpikesTrap.RETRACT_MS) {
+      const k = this.t / SpikesTrap.RETRACT_MS;
+      this.placeReal(Phaser.Math.Linear(this.imgYOut, this.imgYIn, k * k));
+      ghostA = Math.max(ghostA, G * k);
+    } else this.placeReal(this.imgYIn);
+    this.ghost.setAlpha(ghostA);
+    this.outline.setAlpha(lineA);
   }
   rects() {
     if (!this.dangerous) return [];
     // от остриёв (верх спрайта — строка 76 из 256, scale 1.12: img.y − 58) до пола, по ширине шипов.
-    // Раньше зона была на 31 px выше остриёв и в полтора раза шире: смерть без касания
-    return [{ x1: 116, x2: 364, y1: this.img.y - 58, y2: this.ledgeY - 4 }];
+    // Раньше зона была на 31 px выше остриёв и в полтора раза шире: смерть без касания.
+    // Во время рывка острия ещё ниже пола — зоны нет
+    const y1 = this.img.y - 58, y2 = this.ledgeY - 4;
+    return y1 < y2 ? [{ x1: 116, x2: 364, y1: y1, y2: y2 }] : [];
   }
   msToDanger() {
     if (this.phase === 'hidden') return this.durHidden - this.t + this.durWarn;
@@ -161,11 +188,19 @@ class SpikesTrap {
   }
   warnRects() { return [{ x1: 116, x2: 364, y1: this.imgYOut - 58, y2: this.ledgeY - 4 }]; }
   onFrozen() { if (this.dangerous) this.hadFreezeWhileDanger = true; }
-  disarm() { this.phase = 'hidden'; this.t = 0; this.dangerous = false; this.img.setY(this.imgYIn); }
-  destroy() { this.img.destroy(); this.base.destroy(); }
+  disarm() {
+    this.phase = 'hidden'; this.t = SpikesTrap.RETRACT_MS; this.dangerous = false; this.placeReal(this.imgYIn);
+    this.ghost.setAlpha(SpikesTrap.GHOST);
+    this.outline.setAlpha(0);
+  }
+  destroy() { this.img.destroy(); this.base.destroy(); this.ghost.destroy(); this.plate.destroy(); this.outline.destroy(); }
 }
 
-SpikesTrap.GHOST = 0.18;   // непрозрачность неопасных шипов
+SpikesTrap.GHOST = 0.18;       // непрозрачность призрака в покое
+SpikesTrap.PLATE_ROW = 153;    // строка спрайта, где кончаются острия и начинается основание (из 256)
+SpikesTrap.RISE = 112;         // ход рывка, px: больше высоты всего спрайта (99 строк × 1,12 = 111)
+SpikesTrap.DASH_MS = 90;       // рывок вверх
+SpikesTrap.RETRACT_MS = 160;   // уход вниз
 
 const TRAP_CLASSES = { laser: LaserTrap, saw: SawTrap, spikes: SpikesTrap };
 

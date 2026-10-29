@@ -49,6 +49,51 @@ class Sfx {
     else if (type === 'crusher') { this.tone(150 * up, 0.13, 'square', 0.07 * v, 110 * up); this.tone(300 * up, 0.08, 'sine', 0.07 * v); }
     else this.tone(900 * up, 0.07, 'triangle', 0.08 * v);
   }
+  /* Непрерывный звук ловушки, пока она работает: kind — 'saw' (визг диска), 'laser' (гул луча),
+   * 'tesla' (треск дуги). Возвращает { set(gain), stop() } или null без звука. Громкость задаёт
+   * GameScene.updateTrapLoops каждый кадр — по расстоянию до ловушки; при паузе платформы
+   * звуковой контекст останавливается целиком, и эти звуки тоже */
+  loop(kind) {
+    if (!this.ensure()) return null;
+    const ctx = this.ctx, out = ctx.createGain(), nodes = [];
+    out.gain.value = 0;
+    out.connect(ctx.destination);
+    const osc = (type, freq) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq; nodes.push(o); return o; };
+    const lfo = (freq, depth, target) => {          // дрожание громкости
+      const o = osc('sine', freq), g = ctx.createGain();
+      g.gain.value = depth; o.connect(g).connect(target);
+    };
+    if (kind === 'saw') {
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 0.9;
+      const body = ctx.createGain(); body.gain.value = 0.7;
+      osc('sawtooth', 118).connect(bp); osc('sawtooth', 181).connect(bp);
+      bp.connect(body).connect(out);
+      lfo(11, 0.3, body.gain);
+    } else if (kind === 'laser') {
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800;
+      const body = ctx.createGain(); body.gain.value = 0.8;
+      osc('sine', 330).connect(lp); osc('square', 660).connect(lp);
+      lp.connect(body).connect(out);
+      lfo(28, 0.2, body.gain);
+    } else {                                        // tesla: треск — шум с редкими вспышками + низкое гудение
+      const len = ctx.sampleRate, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+      let env = 0;
+      for (let i = 0; i < len; i++) { if (Math.random() < 0.0015) env = 1; env *= 0.997; d[i] = (Math.random() * 2 - 1) * (0.15 + env); }
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true; nodes.push(src);
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1500;
+      src.connect(hp).connect(out);
+      const hum = ctx.createGain(); hum.gain.value = 0.35;
+      osc('sawtooth', 100).connect(hum).connect(out);
+    }
+    nodes.forEach((n) => n.start());
+    return {
+      set(v) { out.gain.setTargetAtTime(Math.max(0, v), ctx.currentTime, 0.03); },
+      stop() {
+        out.gain.setTargetAtTime(0, ctx.currentTime, 0.03);
+        nodes.forEach((n) => { try { n.stop(ctx.currentTime + 0.15); } catch (e) {} });
+      }
+    };
+  }
   unlock()    { this.tone(523, 0.1, 'triangle', 0.12); this.tone(659, 0.1, 'triangle', 0.12, null, 0.09); this.tone(784, 0.1, 'triangle', 0.12, null, 0.18); this.tone(1047, 0.22, 'triangle', 0.12, null, 0.27); }
   reward()    { this.tone(659, 0.1, 'sine', 0.11); this.tone(880, 0.12, 'sine', 0.11, null, 0.09); this.tone(1318, 0.2, 'sine', 0.11, null, 0.18); }
 }

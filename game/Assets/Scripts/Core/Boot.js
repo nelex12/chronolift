@@ -34,9 +34,33 @@ class BootScene extends Phaser.Scene {
     g.fillStyle(0x57f2ff, 1); g.fillCircle(8, 8, 8);
     g.generateTexture('dot_cyan', 16, 16);
     g.destroy();
+    makeOutlineTexture(this, 'trap_spikes', 'trap_spikes_outline', 3, [255, 59, 59]);   // контур шипов (Traps.js)
     this.scene.launch('MusicLoader');   // фоновая загрузка музыки (Core/Music.js): старт её не ждёт
     this.scene.start('Menu');
   }
+}
+
+/* Текстура-контур: только кромка шириной r px снаружи непрозрачных пикселей src, цветом rgb.
+ * Внутри фигуры прозрачно, поэтому контур не просвечивает сквозь полупрозрачную картинку поверх */
+function makeOutlineTexture(scene, src, key, r, rgb) {
+  const img = scene.textures.get(src).getSourceImage();
+  const w = img.width, h = img.height;
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const c2 = cv.getContext('2d');
+  c2.drawImage(img, 0, 0);
+  const a = c2.getImageData(0, 0, w, h).data;
+  const solid = (x, y) => x >= 0 && y >= 0 && x < w && y < h && a[(y * w + x) * 4 + 3] > 128;
+  const out = c2.createImageData(w, h), o = out.data;
+  const disk = [];
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= r * r) disk.push([dx, dy]);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (solid(x, y) || !disk.some(([dx, dy]) => solid(x + dx, y + dy))) continue;
+    const i = (y * w + x) * 4;
+    o[i] = rgb[0]; o[i + 1] = rgb[1]; o[i + 2] = rgb[2]; o[i + 3] = 255;
+  }
+  c2.putImageData(out, 0, 0);
+  scene.textures.addCanvas(key, cv);
 }
 
 (async () => {

@@ -18,3 +18,6 @@ test/*.png
 .vscode/
 .idea/
 node_modules/
+
+# Логи общего прогона (test/run_all.js)
+test/logs/

@@ -20,7 +20,7 @@ const PREFABS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'game', 'A
 const stubProto = {
   setScale() { return this; }, setDepth() { return this; }, setAlpha() { return this; }, setX(x) { this.x = x; return this; },
   setY(y) { this.y = y; return this; }, setTint() { return this; }, clearTint() { return this; }, destroy() {},
-  clear() {}, lineStyle() {}, beginPath() {}, moveTo() {}, lineTo() {}, strokePath() {}, lineBetween() {}, fillStyle() {}, fillCircle() {}, fillRect() {}
+  clear() {}, lineStyle() {}, beginPath() {}, moveTo() {}, lineTo() {}, strokePath() {}, lineBetween() {}, fillStyle() {}, fillCircle() {}, fillRect() {}, setCrop() { return this; }, setTintFill() { return this; }, frame: { width: 256, height: 256 }
 };
 const stub = (x, y) => Object.assign(Object.create(stubProto), { __stub: true, x: x || 0, y: y || 0 });
 const scene = { add: { image: stub, rectangle: stub, graphics: () => stub() }, trapTone() {}, time: { now: 0 }, cameras: { main: { shake() {} } } };
@@ -127,7 +127,23 @@ const players = [
   ['отпускает на 20% позже', 1.0, 0.2, true],
   ['оба промаха сразу (+44%, вне гарантии)', 1.2, 0.2, false]
 ];
-for (const [name, dm, lr, guaranteed] of players) {
+// Четыре игрока считаются параллельно — каждый в своём процессе (SIM_PLAYER = номер), вывод в том же порядке.
+// Одним процессом это ~3 минуты: каждый кадр симуляция проверяет «погиб бы без заморозки?» на копии ловушек
+if (process.env.SIM_PLAYER === undefined) {
+  const { spawn } = require('child_process');
+  Promise.all(players.map((_, i) => new Promise((resolve) => {
+    const c = spawn(process.execPath, [__filename], { env: Object.assign({}, process.env, { SIM_PLAYER: String(i) }) });
+    let out = ''; c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { out += d; });
+    c.on('close', (code) => resolve({ out: out.trim(), code }));
+  }))).then((rs) => {
+    rs.forEach((r) => console.log(r.out));
+    const bad = rs.filter((r) => r.code !== 0).length;
+    console.log(bad ? 'FAIL: ' + bad : 'ALL PASS');
+    process.exit(bad ? 1 : 0);
+  });
+  return;
+}
+for (const [name, dm, lr, guaranteed] of [players[+process.env.SIM_PLAYER]]) {
   const res = []; for (let s = 1; s <= RUNS; s++) res.push(play(s, dm, lr, FLOORS));
   const dead = res.filter(x => x.dead);
   const minE = res.reduce((m, x) => Math.min(m, x.minE), Infinity);
@@ -136,5 +152,4 @@ for (const [name, dm, lr, guaranteed] of players) {
   if (guaranteed) { const ok = dead.length === 0; console.log((ok ? 'PASS' : 'FAIL') + ' | ' + msg); if (!ok) fail++; }
   else console.log('INFO | ' + msg);
 }
-console.log(fail ? 'FAIL: ' + fail : 'ALL PASS');
 process.exit(fail ? 1 : 0);

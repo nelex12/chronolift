@@ -5,7 +5,7 @@ const path = require('path');
 const os = require('os');
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const BASE = 'http://127.0.0.1:8321/index.html';
-const PORT = 9224;
+const PORT = 9232;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 async function main() {

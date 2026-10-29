@@ -1,6 +1,7 @@
 // Снимки ловушек без рамок: каждая в двух состояниях — «скоро ударит» (пик последней вспышки,
 // за 167 мс до удара) и «опасно». Плюс лифт с часами, коллайдер персонажа по спрайту, меню.
-// Снимки: test/look_<ловушка>_warn.png, test/look_<ловушка>_hit.png, test/look_menu.png
+// Шипы — ещё «покой» и «середина рывка». Непрерывные звуки ловушек создаются, когда нужно.
+// Снимки: test/look_<ловушка>_<состояние>.png, test/look_menu.png
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -58,8 +59,9 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     for (const tr of g.traps) tr.destroy(); g.traps = []; g.invincible = 99; return 1; })()`);
 
   const types = ['laser', 'saw', 'spikes', 'crusher', 'tesla'];
+  const TRAP_LOOP = { saw: 1, laser: 1, tesla: 1 };
   for (const type of types) {
-    for (const state of ['warn', 'hit']) {
+    for (const state of (type === 'spikes' ? ['calm', 'warn', 'dash', 'hit'] : ['warn', 'hit'])) {
       const info = await ev(`(() => {
         const g = __GAME.scene.getScene('Game');
         for (const tr of g.traps) tr.destroy();
@@ -69,18 +71,29 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
         const warn = '${state}' === 'warn';
         const before = (d) => d - 1000 / 6;           // пик третьей вспышки: k = 5/6
         if ('${type}' === 'laser') { tr.phase = warn ? 'tele' : 'on'; tr.t = warn ? before(tr.durTele) : 10; }
-        if ('${type}' === 'spikes') { tr.phase = warn ? 'warn' : 'out'; tr.t = warn ? before(tr.durWarn) : 200; }
+        if ('${type}' === 'spikes') {
+          const st = '${state}';
+          if (st === 'calm') { tr.phase = 'hidden'; tr.t = 300; }
+          else if (st === 'dash') { tr.phase = 'out'; tr.t = SpikesTrap.DASH_MS * 0.3; }
+          else { tr.phase = warn ? 'warn' : 'out'; tr.t = warn ? before(tr.durWarn) : 200; }
+        }
         if ('${type}' === 'crusher') { tr.phase = warn ? 'warn' : 'hold'; tr.t = warn ? before(tr.durWarn) : 10; tr.shakeT = 0; if (!warn) tr.press.y = tr.yDown; }
         if ('${type}' === 'tesla') { tr.phase = warn ? 'charge' : 'zap'; tr.t = warn ? before(tr.durCharge) : 10; }
         if ('${type}' === 'saw') { tr.t = warn ? 0 : 600; }
         if ('${type}' === 'tesla' && warn) { const r = Math.random; Math.random = () => 0.1; tr.update(0); Math.random = r; }
         else tr.update(0);
         g.updateVisuals(0, g.time.now);
-        return JSON.stringify({ dangerous: tr.dangerous, k: +trapWarnK(tr).toFixed(2) });
+        g.updateTrapLoops();                            // непрерывный звук: пила всегда, лазер и тесла в ударе
+        const loud = !!tr.loop;
+        g.stopTrapLoops();
+        return JSON.stringify({ dangerous: tr.dangerous, k: +trapWarnK(tr).toFixed(2), y: Math.round(tr.img ? tr.img.y - ledgeY : 0), loop: loud });
       })()`);
       await sleep(150);
       await shot(`look_${type}_${state}.png`);
       console.log(type, state, info);
+      const o = JSON.parse(info);
+      const wantLoop = type === 'saw' || ((type === 'laser' || type === 'tesla') && state === 'hit');
+      if (TRAP_LOOP[type]) check(o.loop === wantLoop, type + ' ' + state + ': непрерывный звук ' + (wantLoop ? 'есть' : 'нет'));
     }
   }
   console.log('ERRORS:', await ev('JSON.stringify(window.__ERRORS||[])'));

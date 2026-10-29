@@ -9,7 +9,7 @@ const os = require('os');
 
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const HOST = 'http://127.0.0.1:8321/';
-const PORT = 9229;
+const PORT = 9233;
 const OUT = path.join(__dirname, '..', 'docs', 'defense');
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

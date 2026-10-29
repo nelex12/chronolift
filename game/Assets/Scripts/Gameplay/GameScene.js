@@ -67,7 +67,7 @@ class GameScene extends Phaser.Scene {
     // и волна застыла бы на экране
     const tickWave = () => Shockwave.update(this);
     this.events.on('update', tickWave);
-    this.events.once('shutdown', () => this.events.off('update', tickWave));
+    this.events.once('shutdown', () => { this.events.off('update', tickWave); this.stopTrapLoops(); });
 
     this.minigames = new MinigameManager(this);
     this.minigameHintShown = false;
@@ -198,7 +198,7 @@ class GameScene extends Phaser.Scene {
 
   cleanup() {
     const bottom = this.roofY + 500;
-    this.traps = this.traps.filter(tr => (tr.ledgeY > bottom) ? (tr.destroy(), false) : true);
+    this.traps = this.traps.filter(tr => (tr.ledgeY > bottom) ? (this.stopTrapLoop(tr), tr.destroy(), false) : true);
     this.coinObjs = this.coinObjs.filter(c => (c.img.y > bottom) ? (c.img.destroy(), false) : true);
     this.ledges = this.ledges.filter(l => (l.y > bottom) ? (l.spr.destroy(), false) : true);
     this.hints = this.hints.filter(h => (h.y > bottom) ? (h.obj.destroy(), false) : true);
@@ -266,6 +266,7 @@ class GameScene extends Phaser.Scene {
     this.collectCoins();
     this.updateVisuals(dtMs, time);
     this.updateWarnAudio();
+    this.updateTrapLoops();
     this.hud.update(this, dtMs, time);
     this.cleanup();
     this.ensureFloors();
@@ -491,6 +492,24 @@ class GameScene extends Phaser.Scene {
     if (g > 0.03) this.sfx.tone(freq, dur, type, vol * g, slideTo);
   }
 
+  /* Непрерывные звуки ловушек (Sfx.loop): пила — всегда, лазер — пока горит луч, тесла — пока бьёт дуга.
+   * Громкость — по расстоянию (trapGain); при остановке времени ловушки замирают и молчат.
+   * Звук создаётся, когда ловушка становится слышна, и останавливается, когда стихает */
+  updateTrapLoops() {
+    for (const tr of this.traps) {
+      const base = TRAP_LOOP_VOL[tr.type];
+      if (!base) continue;
+      if (this.frozen) { if (tr.loop) tr.loop.set(0); continue; }
+      const g = (tr.type === 'saw' || tr.dangerous) ? this.trapGain(tr) : 0;
+      if (g > 0.03) {
+        if (!tr.loop) tr.loop = this.sfx.loop(tr.type);
+        if (tr.loop) tr.loop.set(base * g);
+      } else this.stopTrapLoop(tr);
+    }
+  }
+  stopTrapLoop(tr) { if (tr.loop) { tr.loop.stop(); tr.loop = null; } }
+  stopTrapLoops() { for (const tr of this.traps) this.stopTrapLoop(tr); }
+
   /* сигналы жёлтой зоны: три в такт вспышкам ловушек (trapBlink в Traps.js), каждый выше предыдущего,
    * у каждой ловушки свой тембр (Sfx.warn), громкость — по расстоянию */
   updateWarnAudio() {
@@ -558,6 +577,7 @@ class GameScene extends Phaser.Scene {
     if (this.dead || this.invincible > 0) return;
     this.dead = true;
     this.setFrozen(false);
+    this.stopTrapLoops();
     this.sfx.death();
     this.cameras.main.shake(350, 0.012);
     AnalyticsService.track('run_death', { cause: cause, floor: this.floorsPassed });
@@ -678,6 +698,9 @@ class GameScene extends Phaser.Scene {
     });
   }
 }
+
+// громкость непрерывных звуков ловушек на расстоянии 0 (updateTrapLoops)
+const TRAP_LOOP_VOL = { saw: 0.06, laser: 0.04, tesla: 0.07 };
 
 // за сколько мс до включения ловушки начинается предупреждение (Traps.js)
 GameScene.WARN_MS = TRAP_WARN_MS;

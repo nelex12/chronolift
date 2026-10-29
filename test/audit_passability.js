@@ -18,7 +18,7 @@ const PREFABS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'game', 'A
 const stubProto = {
   setScale() { return this; }, setDepth() { return this; }, setAlpha() { return this; }, setX(x) { this.x = x; return this; },
   setY(y) { this.y = y; return this; }, setTint() { return this; }, clearTint() { return this; }, destroy() {},
-  clear() {}, lineStyle() {}, beginPath() {}, moveTo() {}, lineTo() {}, strokePath() {}, lineBetween() {}, fillStyle() {}, fillCircle() {}, fillRect() {}
+  clear() {}, lineStyle() {}, beginPath() {}, moveTo() {}, lineTo() {}, strokePath() {}, lineBetween() {}, fillStyle() {}, fillCircle() {}, fillRect() {}, setCrop() { return this; }, setTintFill() { return this; }, frame: { width: 256, height: 256 }
 };
 const stub = (x, y) => Object.assign(Object.create(stubProto), { x: x || 0, y: y || 0 });
 const scene = { add: { image: stub, rectangle: stub, graphics: () => stub() }, trapTone() {}, time: { now: 0 }, cameras: { main: { shake() {} } } };
