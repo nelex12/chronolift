@@ -26,7 +26,7 @@ class GameScene extends Phaser.Scene {
     this.missionsDone = [];   // миссии, выполненные в этом забеге (для GameOver)
     this.frozenAcc = 0;       // накопитель секунд заморозки для миссии frozen_secs
 
-    this.traps = []; this.coinObjs = []; this.ledges = []; this.hints = [];
+    this.traps = []; this.coinObjs = []; this.ledges = [];
     // этажи сериями с гарантией проходимости (Gameplay/FloorPlanner.js); lastFloorY — пол последнего этажа
     this.planner = new FloorPlanner(Math.random, TRAP_SPANS, CFG);
     this.lastFloorY = 700;
@@ -76,7 +76,9 @@ class GameScene extends Phaser.Scene {
     this.minigames = new MinigameManager(this);
     this.minigameHintShown = false;
     this.hasFrozenOnce = false;
-    this.buildTutorialHand();
+    // обучение — отдельный режим этого же забега (Gameplay/Tutorial.js): лифт стоит перед каждой
+    // ловушкой, вместо смерти — перемотка назад
+    this.tutorial = save.tutorialDone ? null : new Tutorial(this);
 
     this.addLedge(760, true);
     this.ensureFloors();
@@ -87,30 +89,21 @@ class GameScene extends Phaser.Scene {
   bindInput() {
     // во время мини-игры нажатие сразу засчитывается в ней и удержанием не считается: иначе после
     // ответа палец ещё на экране — и время остановилось бы, тратя энергию
+    // в обучении нажатие сначала закрывает открытую карточку (Tutorial.onPress)
     const press = () => {
       this.sfx.ensure();
+      if (this.tutorial && this.tutorial.onPress()) return;
       if (this.minigames.active) { this.minigames.tap(); return; }
       this.held = true;
     };
-    this.input.on('pointerdown', press);
+    // нажатие на кнопку («пропустить» в обучении) — не остановка времени
+    this.input.on('pointerdown', (pointer, over) => { if (!over || !over.length) press(); });
     this.input.on('pointerup', () => { this.held = false; });
     const kb = this.input.keyboard;
     if (kb) {
       kb.on('keydown-SPACE', (e) => { if (!e.repeat) press(); });
       kb.on('keyup-SPACE', () => { this.held = false; });
     }
-  }
-
-  /* Рука-подсказка для обучения: пульсирует «ЗАЖМИ!», пока игрок не заморозил время */
-  buildTutorialHand() {
-    // ниже часов лифта (низ циферблата — 642 на экране), круг пульсирует до радиуса 58
-    this.hand = this.add.container(240, 722).setScrollFactor(0).setDepth(31).setVisible(false);
-    const circle = this.add.circle(0, 0, 46, 0x2fd6a3, 0.25).setStrokeStyle(3, 0x2fd6a3, 0.9);
-    const label = this.add.text(0, 0, 'ЗАЖМИ!', {
-      fontFamily: 'Arial', fontSize: '22px', fontStyle: 'bold', color: '#eaf6ff'
-    }).setOrigin(0.5);
-    this.hand.add([circle, label]);
-    this.tweens.add({ targets: circle, scale: 1.25, alpha: 0.6, duration: 600, yoyo: true, repeat: -1 });
   }
 
   /* ---------- генерация этажей ---------- */
@@ -126,9 +119,8 @@ class GameScene extends Phaser.Scene {
     const i = this.floorIdx;
     this.addLedge(ledgeY);
 
-    const tutorialActive = !save.tutorialDone;
-    const diff = tutorialActive && i <= 5
-      ? 0.62                                   // обучающие этажи — медленные циклы
+    const diff = this.tutorial
+      ? 0.62                                   // обучение — медленные циклы
       : 1 + Math.min(2.2, i * 0.09);
 
     // типы ловушек выбирает FloorPlanner (ensureFloors): серии по 2–4 угрозы с передышками
@@ -141,13 +133,13 @@ class GameScene extends Phaser.Scene {
       // иначе на старте обучения всплывали все 5 надписей разом
       save.seenTraps = save.seenTraps || {};
       this.introQueued = this.introQueued || {};
-      if (!save.seenTraps[t] && !this.introQueued[t]) {
+      if (!this.tutorial && !save.seenTraps[t] && !this.introQueued[t]) {
         this.introQueued[t] = true;
         trap.introType = t;
       }
     }
 
-    if (i >= 1 && Math.random() < 0.75) {
+    if (!this.tutorial && Math.random() < 0.75) {
       const n = 2 + Math.floor(Math.random() * 2);
       const cx = 120 + Math.random() * 240;
       for (let k = 0; k < n; k++) {
@@ -157,39 +149,13 @@ class GameScene extends Phaser.Scene {
       }
     }
 
-    // обучение: подсказки на первых 5 этажах
-    if (i <= 5 && tutorialActive) {
-      const msgs = {
-        1: '⚠ ЛАЗЕР ВПЕРЕДИ!\nЗАЖМИ ЭКРАН — время остановится',
-        2: 'ПИЛА НЕ ОСТАНОВИТСЯ САМА\nЗамри и проскользни мимо',
-        3: 'ШИПЫ СТРЕМЯТСЯ ВНИЗ\nСледи за энергией слева',
-        4: 'ПРЕСС БЬЁТ СВЕРХУ\nПроскальзывай, пока он поднят',
-        5: 'ТЕСЛА ЗАРЯЖАЕТСЯ И БЬЁТ ДУГОЙ\nЗамри во время разряда'
-      };
-      const t = this.add.text(240, 320, msgs[i], {
-        fontFamily: 'Arial', fontSize: '20px', fontStyle: 'bold', color: '#ffe89b',
-        align: 'center', backgroundColor: '#101826cc', padding: { x: 14, y: 10 }
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(31).setVisible(false);
-      this.hints.push({ floor: i, obj: t, y: ledgeY });
-    }
-  }
-
-  /* Показываем урок ловушки, которую игрок встретит СЛЕДУЮЩЕЙ:
-     берём первую непройденную ловушку и включаем её подсказку. */
-  updateHintVisibility() {
-    const next = this.traps.find(t => !t.done);
-    for (const h of this.hints) h.obj.setVisible(!!next && Math.abs(h.y - next.ledgeY) < 1);
   }
 
   ensureFloors() {
-    // 5 уроков обучения (по одной ловушке), дальше — случайные серии от планировщика
-    const LESSONS = ['laser', 'saw', 'spikes', 'crusher', 'tesla'];
+    // в обучении — свои пять этажей (Tutorial.spawnFloors), в забеге — серии от планировщика
+    if (this.tutorial) { this.tutorial.spawnFloors(); return; }
     for (;;) {
-      if (!this.pendingPlan) {
-        const i = this.floorIdx + 1;
-        const lesson = !save.tutorialDone && i <= 5 ? [LESSONS[i - 1]] : null;
-        this.pendingPlan = this.planner.next(lesson);
-      }
+      if (!this.pendingPlan) this.pendingPlan = this.planner.next(null);
       const y = this.lastFloorY - this.pendingPlan.step;
       if (y <= this.roofY - 2400) break;
       const types = this.pendingPlan.types;
@@ -212,7 +178,6 @@ class GameScene extends Phaser.Scene {
     this.traps = this.traps.filter(tr => (tr.ledgeY > bottom) ? (this.stopTrapLoop(tr), tr.destroy(), false) : true);
     this.coinObjs = this.coinObjs.filter(c => (c.img.y > bottom) ? (c.img.destroy(), false) : true);
     this.ledges = this.ledges.filter(l => (l.y > bottom) ? (l.spr.destroy(), false) : true);
-    this.hints = this.hints.filter(h => (h.y > bottom) ? (h.obj.destroy(), false) : true);
   }
 
   setFrozen(f) {
@@ -231,8 +196,10 @@ class GameScene extends Phaser.Scene {
     this.runTime += dt;
     if (this.invincible > 0) this.invincible -= dt;
 
+    const tut = this.tutorial;
     let wantHold = this.held;
-    if (window.__AUTOTEST) wantHold = this.autoHold();
+    if (window.__AUTOTEST) wantHold = tut ? tut.autoHold() : this.autoHold();
+    if (tut) wantHold = tut.filterHold(wantHold);       // пока открыта карточка, время не останавливается
 
     this.minigames.update(dtMs);
     if (window.__AUTOTEST) this.minigames.autoSolve();
@@ -243,10 +210,9 @@ class GameScene extends Phaser.Scene {
     if (wantHold && !this.frozen && !this.overload && this.energy > 1) this.setFrozen(true);
     if ((!wantHold || this.overload) && this.frozen) this.setFrozen(false);
 
-    const speedMul = window.__AUTOTEST ? 10 : 1;
-    const speed = Math.min(CFG.maxSpeed, CFG.baseSpeed + this.floorsPassed * CFG.speedPerFloor) * speedMul;
+    const speed = this.liftSpeed() * (tut ? tut.speedK() : 1);
     this.roofY -= speed * dt;
-    this.checkBonusGap(speed);
+    if (!tut) this.checkBonusGap(speed);
 
     if (this.frozen) {
       this.frozenAcc += dt;
@@ -264,15 +230,15 @@ class GameScene extends Phaser.Scene {
       if (this.overload && this.energy >= CFG.overloadRegen) this.overload = false;
     }
 
+    // в обучении этажи не засчитываются (ни очков, ни миссий), а при перемотке ловушки стоят
+    const pass = (tr) => { if (!tr.done && this.roofY < tr.ledgeY - 150) { tr.done = true; if (!tut) this.floorPassedBy(tr); } };
     if (!this.frozen) {
-      for (const tr of this.traps) {
-        tr.update(dtMs);
-        if (!tr.done && this.roofY < tr.ledgeY - 150) { tr.done = true; this.floorPassedBy(tr); }
-      }
+      if (!(tut && tut.holdTraps())) for (const tr of this.traps) tr.update(dtMs);
+      for (const tr of this.traps) pass(tr);
     } else {
       for (const tr of this.traps) {
         if (Math.abs(tr.ledgeY - this.roofY) < 320) tr.onFrozen();
-        if (!tr.done && this.roofY < tr.ledgeY - 150) { tr.done = true; this.floorPassedBy(tr); }
+        pass(tr);
       }
     }
 
@@ -286,11 +252,12 @@ class GameScene extends Phaser.Scene {
     this.cleanup();
     this.ensureFloors();
 
-    // рука-подсказка на старте: пока ни один этаж не пройден и игрок ни разу не заморозил время
-    this.hand.setVisible(!save.tutorialDone && this.floorsPassed === 0 && !this.hasFrozenOnce && !this.frozen);
-    this.updateHintVisibility();
+    if (tut) tut.update(dt);
+  }
 
-    if (this.floorsPassed >= 5 && !save.tutorialDone) { save.tutorialDone = true; saveNow(); }
+  /* скорость лифта, px/с (в ?autotest=1 — в 10 раз быстрее) */
+  liftSpeed() {
+    return Math.min(CFG.maxSpeed, CFG.baseSpeed + this.floorsPassed * CFG.speedPerFloor) * (window.__AUTOTEST ? 10 : 1);
   }
 
   showTrapIntros() {
@@ -307,7 +274,7 @@ class GameScene extends Phaser.Scene {
    * опасной зоны или зоны, которая вот-вот включится. Раньше держал при любой опасной ловушке
    * в 300 px и тратил энергию впустую (выручал двойной счёт этажей, разгонявший лифт) */
   autoHold() {
-    const v = Math.min(CFG.maxSpeed, CFG.baseSpeed + this.floorsPassed * CFG.speedPerFloor) * (window.__AUTOTEST ? 10 : 1);
+    const v = this.liftSpeed();
     const pr = this.playerRects()[0];
     const y1 = pr.y1 - v / 60 * 2 - 4, x1 = pr.x1 - 12, x2 = pr.x2 + 12;
     for (const tr of this.traps) {
@@ -437,12 +404,14 @@ class GameScene extends Phaser.Scene {
 
   checkDanger() {
     if (this.frozen || this.invincible > 0 || this.dead) return;
+    if (this.tutorial && !this.tutorial.canHit()) return;
     const pr = this.playerRects()[0];
     for (const tr of this.traps) {
       if (Math.abs(tr.ledgeY - this.roofY) > 320) continue;
       for (const s of (tr.hitShapes ? tr.hitShapes() : tr.rects())) {
         if (this.playerHits(s, pr)) {
-          this.die(tr.type);
+          if (this.tutorial) this.tutorial.onHit(tr);    // в обучении не умирают: перемотка назад
+          else this.die(tr.type);
           return;
         }
       }
@@ -466,7 +435,8 @@ class GameScene extends Phaser.Scene {
   updateVisuals(dtMs, time) {
     this.player.setPosition(240, this.roofY + this.playerMask.offY);
     this.lift.setPosition(240, this.roofY + 2);                     // ноги персонажа — на верху плиты
-    if (!this.frozen) this.lift.tick(dtMs);                         // часы лифта стоят вместе со временем
+    // часы лифта стоят вместе со временем; при перемотке в обучении идут назад
+    if (!this.frozen) this.lift.tick(dtMs * (this.tutorial ? this.tutorial.clockRate() : 1));
     this.jetGlow.setPosition(240, this.roofY + 2 + LiftPlatform.BOTTOM + 4);
     this.jetGlow.setAlpha(0.20 + 0.12 * Math.sin(time * 0.008));
     this.cameras.main.setScroll(0, this.roofY - 600);
@@ -586,6 +556,7 @@ class GameScene extends Phaser.Scene {
 
   /* Прогресс ежедневных миссий: счётчик + тост о выполнении (награду забирают в меню) */
   trackMission(type, amount, mode) {
+    if (this.tutorial) return;                // обучение в миссии не идёт
     const fresh = MissionService.progress(type, amount, mode);
     for (const m of fresh) {
       if (this.missionsDone.some((x) => x.id === m.id)) continue;

@@ -24,7 +24,7 @@ class Hud {
     this.floorText = scene.add.text(464, 42, 'ЭТАЖ 0', {
       fontFamily: 'Arial', fontSize: '15px', color: '#9fb4c8'
     }).setOrigin(1, 0.5);
-    const coinIcon = scene.add.image(310, 70, 'coin').setScale(0.14);
+    const coinIcon = this.coinIcon = scene.add.image(310, 70, 'coin').setScale(0.14);
     this.coinText = scene.add.text(324, 70, '× 0', {
       fontFamily: 'Arial', fontSize: '17px', color: '#ffc93c'
     }).setOrigin(0, 0.5);
@@ -33,6 +33,11 @@ class Hud {
       this.scoreText, this.floorText, coinIcon, this.coinText]);
     this.container = hud;
     this.toasts = [];
+  }
+
+  /* в обучении (Gameplay/Tutorial.js) очков, этажей и монет нет: справа вверху — прогресс обучения */
+  setTutorial(on) {
+    for (const o of [this.scoreText, this.floorText, this.coinIcon, this.coinText]) o.setVisible(!on);
   }
 
   toast(msg, color) {

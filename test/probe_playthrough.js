@@ -22,7 +22,7 @@ async function waitDebugger() {
 async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-'));
   const chrome = spawn(CHROME, [
-    '--headless=new', '--disable-gpu', '--no-sandbox',
+    '--headless=new', '--mute-audio', '--disable-gpu', '--no-sandbox',
     `--remote-debugging-port=${PORT}`, `--user-data-dir=${tmp}`,
     '--window-size=480,800', '--force-device-scale-factor=' + (process.env.CHRONO_DPR || 1), '--hide-scrollbars', 'about:blank'
   ], { stdio: 'ignore' });
@@ -82,6 +82,8 @@ async function main() {
   await sleep(1000);
   await click(240, 490);   // забрать ежедневную
   await sleep(1000);
+  // обучение проходит test/probe_tutorial.js; здесь бот играет обычный забег
+  await evaluate('save.tutorialDone = true; saveNow(); 1');
   await click(240, 560);   // ИГРАТЬ
 
   /* --- бот играет, скриншоты уроков --- */

@@ -48,15 +48,15 @@ class SettingsScene extends Phaser.Scene {
       }
     });
 
-    // обучение заново: 5 обучающих этажей и интро ловушек
-    const tut = makeButton(this, 240, 420, 340, 58, 'ПРОЙТИ ОБУЧЕНИЕ ЗАНОВО', {
+    // обучение заново (Gameplay/Tutorial.js) — сразу, без похода в меню
+    makeButton(this, 240, 420, 340, 58, 'ПРОЙТИ ОБУЧЕНИЕ ЗАНОВО', {
       fontSize: 20,
       onClick: () => {
         save.tutorialDone = false;
         save.seenTraps = {};
         saveNow();
-        tut.txt.setText('ОБУЧЕНИЕ — В СЛЕДУЮЩЕМ ЗАБЕГЕ');
         AnalyticsService.track('settings_tutorial', {});
+        this.scene.start('Game');
       }
     });
 

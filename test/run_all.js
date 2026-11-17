@@ -13,7 +13,7 @@ const path = require('path');
 
 const NODE_ONLY = ['check_pages', 'check_daily', 'audit_passability', 'sim_players', 'check_offline'];
 // самые долгие — первыми, чтобы не остались в хвосте одни
-const BROWSER = ['probe_missions', 'probe_playthrough', 'cdp_test', 'probe_minigames', 'probe_revive',
+const BROWSER = ['probe_tutorial', 'probe_missions', 'probe_playthrough', 'cdp_test', 'probe_minigames', 'probe_revive',
   'probe_input', 'probe_wave', 'probe_traps_look', 'probe_yandex', 'probe_scenes', 'probe_pause'];
 const JOBS = Math.max(1, +process.env.JOBS || 4);
 const LOGS = path.join(__dirname, 'logs');

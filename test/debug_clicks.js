@@ -7,7 +7,7 @@ const PORT = 9225;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-'));
-  const chrome = spawn(CHROME, ['--headless=new','--disable-gpu','--no-sandbox',
+  const chrome = spawn(CHROME, ['--headless=new','--mute-audio','--disable-gpu','--no-sandbox',
     `--remote-debugging-port=${PORT}`,`--user-data-dir=${tmp}`,'--window-size=480,800','about:blank'], { stdio: 'ignore' });
   process.on('exit', () => { try { chrome.kill(); } catch(e){} });
   for (let i=0;i<50;i++){ try{ const r=await fetch(`http://127.0.0.1:${PORT}/json/version`); if(r.ok) break;}catch(e){} await sleep(300);}

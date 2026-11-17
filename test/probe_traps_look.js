@@ -11,7 +11,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-'));
-  const chrome = spawn(CHROME, ['--headless=new', '--no-sandbox', '--enable-unsafe-swiftshader',
+  const chrome = spawn(CHROME, ['--headless=new', '--mute-audio', '--no-sandbox', '--enable-unsafe-swiftshader',
     '--remote-debugging-port=9230', `--user-data-dir=${tmp}`, '--window-size=480,800', '--force-device-scale-factor=' + (process.env.CHRONO_DPR || 1), 'about:blank'], { stdio: 'ignore' });
   process.on('exit', () => { try { chrome.kill(); } catch (e) {} });
   for (let i = 0; i < 50; i++) { try { const r = await fetch('http://127.0.0.1:9230/json/version'); if (r.ok) break; } catch (e) {} await sleep(300); }

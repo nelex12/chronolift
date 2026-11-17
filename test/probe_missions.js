@@ -25,7 +25,7 @@ function check(name, cond, extra) {
 async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'msn-'));
   const chrome = spawn(CHROME, [
-    '--headless=new', '--disable-gpu', '--no-sandbox',
+    '--headless=new', '--mute-audio', '--disable-gpu', '--no-sandbox',
     `--remote-debugging-port=${PORT}`, `--user-data-dir=${tmp}`,
     '--window-size=480,800', '--force-device-scale-factor=' + (process.env.CHRONO_DPR || 1), '--hide-scrollbars', 'about:blank'
   ], { stdio: 'ignore' });

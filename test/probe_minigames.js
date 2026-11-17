@@ -1,4 +1,4 @@
-// Фокусная проверка: обучение (рука/заморозка) + миниигры в автотесте.
+// Фокусная проверка: мини-игры на обычной скорости (обучение проверяет test/probe_tutorial.js).
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -21,7 +21,7 @@ async function waitDebugger() {
 async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-'));
   const chrome = spawn(CHROME, [
-    '--headless=new', '--disable-gpu', '--no-sandbox',
+    '--headless=new', '--mute-audio', '--disable-gpu', '--no-sandbox',
     `--remote-debugging-port=${PORT}`, `--user-data-dir=${tmp}`,
     '--window-size=480,800', '--force-device-scale-factor=' + (process.env.CHRONO_DPR || 1), '--hide-scrollbars', 'about:blank'
   ], { stdio: 'ignore' });
@@ -75,35 +75,7 @@ async function main() {
   await send('Page.enable');
   await send('Runtime.enable');
 
-  /* ---- Фаза 1: ручной ввод, обучение ---- */
-  await send('Page.navigate', { url: BASE });
-  await sleep(3200);
-  await click(240, 522);            // welcome: играть без входа
-  await sleep(900);
-  await click(240, 490);            // daily: забрать
-  await sleep(900);
-  await click(240, 590);            // меню: ИГРАТЬ
-  await sleep(1200);
-
-  const handVisibleBefore = await evaluate("(()=>{const s=__GAME.scene.getScene('Game');return s&&s.hand?s.hand.visible:null})()");
-  const floor1 = await evaluate("(()=>{const s=__GAME.scene.getScene('Game');return s?s.floorIdx:null})()");
-  await pressAt(240, 700);          // ЗАЖАТЬ экран
-  await sleep(900);
-  const st1 = await evaluate("(()=>{const s=__GAME.scene.getScene('Game');return s?JSON.stringify({frozen:s.frozen,energy:Math.round(s.energy),hand:s.hand.visible,hasFrozen:s.hasFrozenOnce}):null})()");
-  await screenshot('edu_1_freeze.png');
-  await releaseAt();
-  await sleep(400);
-
-  // подтолкнуть кабину к первой ловушке, чтобы увидеть урок-1 вживую
-  await evaluate("(()=>{const s=__GAME.scene.getScene('Game');if(s&&s.traps[0])s.roofY=s.traps[0].ledgeY+330;return 'ok'})()");
-  await sleep(1100);
-  const st2 = await evaluate("(()=>{const s=__GAME.scene.getScene('Game');return s?JSON.stringify({floor:s.floorIdx,alive:!s.dead,floorsPassed:s.floorsPassed,tut:save.tutorialDone}):null})()");
-  await screenshot('edu_2_lesson1.png');
-  console.log('HAND-VISIBLE-BEFORE-HOLD:', handVisibleBefore, 'FLOOR:', floor1);
-  console.log('AFTER-HOLD:', st1);
-  console.log('NEAR-TRAP:', st2);
-
-  /* ---- Фаза 2: мини-игры на обычной скорости (в ?autotest=1 лифт в 10 раз быстрее, и передышка
+  /* ---- Мини-игры на обычной скорости (в ?autotest=1 лифт в 10 раз быстрее, и передышка
    * под мини-игру длится доли секунды). Игрок неуязвим, ловушки сами не трогаем. Проверяем:
    * мини-игра начинается, когда игрок вне зон ловушек, и кончается до входа в зону следующей;
    * нажатие в ней засчитывается, время не останавливает и энергию не тратит ---- */

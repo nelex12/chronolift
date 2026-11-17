@@ -18,7 +18,7 @@ async function waitDbg() {
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-'));
-  const chrome = spawn(CHROME, ['--headless=new', '--disable-gpu', '--no-sandbox',
+  const chrome = spawn(CHROME, ['--headless=new', '--mute-audio', '--disable-gpu', '--no-sandbox',
     `--remote-debugging-port=${PORT}`, `--user-data-dir=${tmp}`, '--window-size=480,800', '--force-device-scale-factor=' + (process.env.CHRONO_DPR || 1), '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' });
   process.on('exit', () => { try { chrome.kill(); } catch (e) {} });
   if (!await waitDbg()) process.exit(1);
